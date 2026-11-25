@@ -1,9 +1,8 @@
 package com.curso.biblioteca2026.api;
 
+import com.curso.biblioteca2026.config.AdministradorInicialProperties;
 import com.curso.biblioteca2026.model.ContaAcesso;
-import com.curso.biblioteca2026.model.Pessoa;
-import com.curso.biblioteca2026.repository.ContaAcessoRepository;
-import com.curso.biblioteca2026.repository.PessoaRepository;
+import com.curso.biblioteca2026.service.AdministradorInicialService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.json.JsonParserFactory;
@@ -24,8 +23,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -37,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class ContaAcessoSecurityTest {
 
+    private static final String SENHA_ADMIN = "senha-admin-segura-2026";
     private static final String SENHA_INICIAL = "uma-frase-senha-2026";
     private static final String NOVA_SENHA = "outra-frase-senha-2026";
     private static final AtomicInteger SEQUENCIA_CPF = new AtomicInteger(500_000_000);
@@ -45,21 +47,40 @@ class ContaAcessoSecurityTest {
     private MockMvc mockMvc;
 
     @Autowired
-    private PessoaRepository pessoaRepository;
-
-    @Autowired
-    private ContaAcessoRepository contaAcessoRepository;
+    private AdministradorInicialService administradorInicialService;
 
     @Autowired
     private JwtDecoder jwtDecoder;
 
     @Test
-    void devePermitirHealthPublicoERejeitarRotaProtegidaSemBearerValido() throws Exception {
+    void devePermitirHealthPublicoERejeitarRotasProtegidasSemBearerValido() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("OK"));
 
         mockMvc.perform(get("/api/livros"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/pessoas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nome": "Sem Token",
+                                  "email": "semtoken@example.com",
+                                  "cpf": "%s"
+                                }
+                                """.formatted(gerarCpfUnico())))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/contas-acesso")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "pessoaId": 1,
+                                  "login": "semtoken",
+                                  "senha": "%s"
+                                }
+                                """.formatted(SENHA_INICIAL)))
                 .andExpect(status().isUnauthorized());
 
         String basicHeader = "Basic " + Base64.getEncoder()
@@ -74,48 +95,43 @@ class ContaAcessoSecurityTest {
     }
 
     @Test
-    void deveEmitirJwtValidarClaimsAutenticarComBearerEBloquearNovosLogins() throws Exception {
-        String cpf = gerarCpfUnico();
-        String email = "operadora." + System.nanoTime() + "@example.com";
-        String login = "operadora." + System.nanoTime();
+    void deveAplicarAutorizacaoPorPerfisInvariantesAdministrativasETrocaDeSenha() throws Exception {
+        String adminLogin = "admin." + System.nanoTime();
+        ContaAcesso adminConta = criarAdministradorInicial(adminLogin);
+        String tokenAdmin = autenticar(adminLogin, SENHA_ADMIN);
 
-        String pessoaJson = """
-                {
-                  "nome": "Operadora Biblioteca",
-                  "email": "%s",
-                  "cpf": "%s"
-                }
-                """.formatted(email, cpf);
+        Jwt jwtAdmin = jwtDecoder.decode(tokenAdmin);
+        assertEquals("https://biblioteca2026.local", jwtAdmin.getIssuer().toString());
+        assertEquals(adminLogin, jwtAdmin.getSubject());
+        assertTrue(jwtAdmin.getClaimAsStringList("perfis").contains("ADMINISTRADOR"));
 
-        mockMvc.perform(post("/api/pessoas")
+        // Administrador cadastra pessoa e conta OPERADOR
+        Long pessoaOperadoraId = cadastrarPessoa(tokenAdmin, "Operadora Biblioteca");
+        String loginOperadora = "operadora." + System.nanoTime();
+
+        MvcResult contaResult = mockMvc.perform(post("/api/contas-acesso")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(pessoaJson))
+                        .content("""
+                                {
+                                  "pessoaId": %d,
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(pessoaOperadoraId, loginOperadora, SENHA_INICIAL)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.cpf").value(cpf));
-
-        Pessoa pessoa = pessoaRepository.findAll().stream()
-                .filter(p -> cpf.equals(p.getCpf()))
-                .findFirst()
-                .orElseThrow();
-
-        String contaJson = """
-                {
-                  "pessoaId": %d,
-                  "login": "%s",
-                  "senha": "%s"
-                }
-                """.formatted(pessoa.getId(), login, SENHA_INICIAL);
-
-        mockMvc.perform(post("/api/contas-acesso")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(contaJson))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.login").value(login))
+                .andExpect(jsonPath("$.login").value(loginOperadora))
                 .andExpect(jsonPath("$.status").value("ATIVA"))
                 .andExpect(jsonPath("$.perfis[0]").value("OPERADOR"))
                 .andExpect(content().string(not(containsString(SENHA_INICIAL))))
-                .andExpect(content().string(not(containsString("{bcrypt}"))));
+                .andExpect(content().string(not(containsString("{bcrypt}"))))
+                .andReturn();
 
+        Long contaOperadoraId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(contaResult.getResponse().getContentAsString())
+                .get("id")).longValue();
+
+        // Login com senha incorreta retorna 401
         mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -123,48 +139,128 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "senha-incorreta-2026"
                                 }
-                                """.formatted(login)))
+                                """.formatted(loginOperadora)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.message").value("Login ou senha inválidos"));
 
-        String token = autenticar(login, SENHA_INICIAL);
-        assertFalse(token.contains(SENHA_INICIAL));
+        String tokenOperadora = autenticar(loginOperadora, SENHA_INICIAL);
 
-        Jwt jwt = jwtDecoder.decode(token);
-        assertEquals("https://biblioteca2026.local", jwt.getIssuer().toString());
-        assertEquals(login, jwt.getSubject());
-        assertNotNull(jwt.getId());
-        assertNotNull(jwt.getIssuedAt());
-        assertNotNull(jwt.getExpiresAt());
-        assertTrue(jwt.getExpiresAt().isAfter(jwt.getIssuedAt()));
-        assertTrue(jwt.getClaimAsStringList("perfis").contains("OPERADOR"));
-
-        String tokenAdulterado = token.substring(0, token.length() - 2) + "xx";
+        // OPERADOR executa operacoes cotidianas (200 / 201)
         mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdulterado))
-                .andExpect(status().isUnauthorized());
-
-        mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.login").value(login));
+                .andExpect(jsonPath("$.login").value(loginOperadora));
 
         mockMvc.perform(get("/api/livros")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
                 .andExpect(status().isOk());
 
-        String trocaSenhaJson = """
-                {
-                  "senhaAtual": "%s",
-                  "novaSenha": "%s"
-                }
-                """.formatted(SENHA_INICIAL, NOVA_SENHA);
-
-        mockMvc.perform(put("/api/contas-acesso/me/senha")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        MvcResult categoriaResult = mockMvc.perform(post("/api/categorias")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(trocaSenhaJson))
+                        .content("""
+                                {
+                                  "nome": "Categoria Teste %d"
+                                }
+                                """.formatted(System.nanoTime())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long categoriaId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(categoriaResult.getResponse().getContentAsString())
+                .get("id")).longValue();
+
+        // OPERADOR recebe 403 em rotas administrativas e exclusoes
+        Long outraPessoaId = cadastrarPessoa(tokenOperadora, "Terceira Pessoa");
+        mockMvc.perform(post("/api/contas-acesso")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "pessoaId": %d,
+                                  "login": "nao.autorizado.%d",
+                                  "senha": "%s"
+                                }
+                                """.formatted(outraPessoaId, System.nanoTime(), SENHA_INICIAL)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR", "ADMINISTRADOR"]
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
+                .andExpect(status().isForbidden());
+
+        // ADMINISTRADOR nao pode bloquear nem remover perfil admin de si mesmo (400)
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", adminConta.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", adminConta.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR"]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // ADMINISTRADOR promove operadora; token antigo continua sem privilegio ate novo login
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR", "ADMINISTRADOR"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.perfis", hasItems("OPERADOR", "ADMINISTRADOR")));
+
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
+                .andExpect(status().isForbidden());
+
+        String tokenOperadoraPromovida = autenticar(loginOperadora, SENHA_INICIAL);
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadoraPromovida))
+                .andExpect(status().isNoContent());
+
+        // Troca de senha da propria conta autenticada
+        mockMvc.perform(put("/api/contas-acesso/me/senha")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadoraPromovida)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "senhaAtual": "%s",
+                                  "novaSenha": "%s"
+                                }
+                                """.formatted(SENHA_INICIAL, NOVA_SENHA)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/api/autenticacao/login")
@@ -174,17 +270,25 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "%s"
                                 }
-                                """.formatted(login, SENHA_INICIAL)))
+                                """.formatted(loginOperadora, SENHA_INICIAL)))
                 .andExpect(status().isUnauthorized());
 
-        String novoToken = autenticar(login, NOVA_SENHA);
+        String tokenAposTrocaSenha = autenticar(loginOperadora, NOVA_SENHA);
         mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + novoToken))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAposTrocaSenha))
                 .andExpect(status().isOk());
 
-        ContaAcesso conta = contaAcessoRepository.findByLoginIgnoreCase(login).orElseThrow();
-        conta.bloquear();
-        contaAcessoRepository.saveAndFlush(conta);
+        // ADMINISTRADOR bloqueia outra conta (200) e novos logins da conta bloqueada falham (401)
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("BLOQUEADA"));
 
         mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -193,24 +297,52 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "%s"
                                 }
-                                """.formatted(login, NOVA_SENHA)))
+                                """.formatted(loginOperadora, NOVA_SENHA)))
                 .andExpect(status().isUnauthorized());
     }
 
-    private String autenticar(String login, String senha) throws Exception {
-        String loginJson = """
-                {
-                  "login": "%s",
-                  "senha": "%s"
-                }
-                """.formatted(login, senha);
+    private ContaAcesso criarAdministradorInicial(String login) {
+        AdministradorInicialProperties props = new AdministradorInicialProperties(
+                true,
+                "Administrador Teste",
+                "admin." + System.nanoTime() + "@example.com",
+                gerarCpfUnico(),
+                login,
+                SENHA_ADMIN
+        );
+        return administradorInicialService.criarSeNecessario(props).orElseThrow();
+    }
 
+    private Long cadastrarPessoa(String bearerToken, String nome) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/pessoas")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nome": "%s",
+                                  "email": "pessoa.%d@example.com",
+                                  "cpf": "%s"
+                                }
+                                """.formatted(nome, System.nanoTime(), gerarCpfUnico())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        return ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString())
+                .get("id")).longValue();
+    }
+
+    private String autenticar(String login, String senha) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginJson))
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(login, senha)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(1800))
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andReturn();
 

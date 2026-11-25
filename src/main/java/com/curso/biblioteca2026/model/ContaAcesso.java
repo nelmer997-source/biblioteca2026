@@ -85,10 +85,26 @@ public class ContaAcesso {
         return Collections.unmodifiableSet(perfis);
     }
 
+    public boolean possuiPerfil(PerfilAcesso perfil) {
+        return perfil != null && this.perfis.contains(perfil);
+    }
+
     public boolean podeAutenticar() {
         return this.status == StatusContaAcesso.ATIVA
                 && this.pessoa != null
                 && this.pessoa.getStatus() == Status.ATIVO;
+    }
+
+    public void concederPerfil(PerfilAcesso perfil) {
+        this.perfis.add(Objects.requireNonNull(perfil, "Perfil é obrigatório"));
+    }
+
+    public void substituirPerfis(Set<PerfilAcesso> novosPerfis) {
+        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.contains(null)) {
+            throw new IllegalArgumentException("A conta deve possuir ao menos um perfil");
+        }
+        this.perfis.clear();
+        this.perfis.addAll(novosPerfis);
     }
 
     public void alterarSenha(String novoSenhaHash) {

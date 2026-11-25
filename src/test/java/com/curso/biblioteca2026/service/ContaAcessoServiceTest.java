@@ -4,13 +4,20 @@ import com.curso.biblioteca2026.model.ContaAcesso;
 import com.curso.biblioteca2026.model.PerfilAcesso;
 import com.curso.biblioteca2026.model.Pessoa;
 import com.curso.biblioteca2026.model.StatusContaAcesso;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -31,6 +38,16 @@ class ContaAcessoServiceTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void autenticarComoAdministrador() {
+        autenticarComRole("ROLE_ADMINISTRADOR");
+    }
+
+    @AfterEach
+    void limparContextoSeguranca() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void devePersistirContaComHashBcryptSemGuardarSenhaAberta() {
@@ -61,11 +78,34 @@ class ContaAcessoServiceTest {
                 "carlos." + System.nanoTime() + "@example.com",
                 gerarCpfUnico());
 
-        String senha73Bytes = "á".repeat(36) + "a"; // 36 * 2 + 1 = 73 bytes em UTF-8
+        String senha73Bytes = "á".repeat(36) + "a";
 
         assertThrows(
                 IllegalArgumentException.class,
                 () -> contaAcessoService.cadastrar(pessoa.getId(), "carlos." + System.nanoTime(), senha73Bytes));
+    }
+
+    @Test
+    void deveBloquearCadastroDiretoNoServiceSemPerfilAdministrador() {
+        Pessoa pessoa = pessoaService.cadastrar(
+                "Diana Rocha",
+                "diana." + System.nanoTime() + "@example.com",
+                gerarCpfUnico());
+
+        autenticarComRole("ROLE_OPERADOR");
+
+        assertThrows(
+                AccessDeniedException.class,
+                () -> contaAcessoService.cadastrar(pessoa.getId(), "diana." + System.nanoTime(), "uma-frase-senha-2026"));
+    }
+
+    private static void autenticarComRole(String role) {
+        var auth = UsernamePasswordAuthenticationToken.authenticated(
+                "usuario.teste",
+                null,
+                List.of(new SimpleGrantedAuthority(role))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
     private static String gerarCpfUnico() {
