@@ -17,14 +17,15 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("Biblioteca 2026 API")
-                        .description("API REST para gerenciamento da biblioteca, protegida por autenticação HTTP Basic.")
+                        .description("API REST para gerenciamento da biblioteca, protegida por Bearer Token JWT.")
                         .version("1.0.0")
                         .contact(new Contact()
                                 .name("Curso de Spring Boot 2026")))
                 .components(new Components()
-                        .addSecuritySchemes("basicAuth", new SecurityScheme()
+                        .addSecuritySchemes("bearerAuth", new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)
-                                .scheme("basic")))
-                .addSecurityItem(new SecurityRequirement().addList("basicAuth"));
+                                .scheme("bearer")
+                                .bearerFormat("JWT")))
+                .addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
     }
 }
