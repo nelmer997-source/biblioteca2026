@@ -21,12 +21,14 @@ class OpenApiDocumentationTest {
     private MockMvc mockMvc;
 
     @Test
-    void devePublicarContratoOpenApiComRotasEssenciais() throws Exception {
+    void devePublicarContratoOpenApiComRotasEssenciaisESeguranca() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi", startsWith("3.")))
                 .andExpect(jsonPath("$.info.title").value("Biblioteca 2026 API"))
                 .andExpect(jsonPath("$.info.version").value("1.0.0"))
+                .andExpect(jsonPath("$.components.securitySchemes.basicAuth.type").value("http"))
+                .andExpect(jsonPath("$.components.securitySchemes.basicAuth.scheme").value("basic"))
                 .andExpect(jsonPath("$.paths['/api/categorias/{id}'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/categorias/{id}'].put").exists())
                 .andExpect(jsonPath("$.paths['/api/livros/{id}'].get.summary")
@@ -41,8 +43,12 @@ class OpenApiDocumentationTest {
                 .andExpect(jsonPath("$.paths['/api/bibliotecarios'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/emprestimos/{id}/itens'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/emprestimos/{id}/finalizacao'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/contas-acesso'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/contas-acesso/me'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/contas-acesso/me/senha'].put").exists())
                 .andExpect(jsonPath("$.components.schemas.LivroResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.EmprestimoResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.ContaAcessoResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ApiError").exists());
     }
 }

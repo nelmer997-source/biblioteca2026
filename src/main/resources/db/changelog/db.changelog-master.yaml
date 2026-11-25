@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-categorias-e-livros.yaml
   - include:
       file: db/changelog/changes/005-pessoas-leitores-emprestimos.yaml
+  - include:
+      file: db/changelog/changes/006-contas-acesso.yaml

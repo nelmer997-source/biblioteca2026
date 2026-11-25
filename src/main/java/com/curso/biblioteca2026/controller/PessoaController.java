@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -68,7 +69,8 @@ public class PessoaController {
         return mapper.toResponse(service.buscarPorId(id));
     }
 
-    @Operation(summary = "Cadastrar pessoa")
+    @Operation(summary = "Cadastrar pessoa", description = "Endpoint público provisório de bootstrap para criação da pessoa inicial.")
+    @SecurityRequirements
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Pessoa cadastrada"),
             @ApiResponse(responseCode = "400", description = "Dados ou CPF inválidos",
