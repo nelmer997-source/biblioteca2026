@@ -13,11 +13,16 @@ public class CategoriaLivro {
     @Column(nullable = false, unique = true, length = 100)
     private String nome;
 
-    public CategoriaLivro() {
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Status status = Status.ATIVO;
+
+    protected CategoriaLivro() {
     }
 
     public CategoriaLivro(String nome) {
-        this.nome = nome;
+        alterarNome(nome);
+        this.status = Status.ATIVO;
     }
 
     public Long getId() {
@@ -28,7 +33,29 @@ public class CategoriaLivro {
         return nome;
     }
 
-    public void setNome(String nome) {
-        this.nome = nome;
+    public Status getStatus() {
+        return status;
+    }
+
+    public void alterarNome(String nome) {
+        if (nome == null || nome.isBlank()) {
+            throw new IllegalArgumentException("O nome da categoria é obrigatório");
+        }
+        this.nome = nome.trim();
+    }
+
+    public void alterarStatus(Status status) {
+        if (status == null) {
+            throw new IllegalArgumentException("O status é obrigatório");
+        }
+        this.status = status;
+    }
+
+    public void ativar() {
+        this.status = Status.ATIVO;
+    }
+
+    public void inativar() {
+        this.status = Status.INATIVO;
     }
 }

@@ -10,7 +10,10 @@ import java.time.LocalDate;
 public class Livro {
 
     @Id
-    @Column(length = 20)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 20)
     private String isbn;
 
     @Column(nullable = false, length = 200)
@@ -25,88 +28,121 @@ public class Livro {
     @Column(nullable = false)
     private LocalDate dataCadastro;
 
-    @Column(nullable = false)
-    private Boolean ativo;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Status status = Status.ATIVO;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "categoria_id", nullable = false)
     private CategoriaLivro categoria;
 
-    public Livro() {
+    protected Livro() {
     }
 
     public Livro(String isbn, String titulo, Integer quantidadeExemplares,
                  BigDecimal valorReposicao, LocalDate dataCadastro,
                  Boolean ativo, CategoriaLivro categoria) {
         this.isbn = isbn;
-        this.titulo = titulo;
-        this.quantidadeExemplares = quantidadeExemplares;
-        this.valorReposicao = valorReposicao;
-        this.dataCadastro = dataCadastro;
-        this.ativo = ativo;
-        this.categoria = categoria;
+        alterarTitulo(titulo);
+        definirQuantidadeInicial(quantidadeExemplares);
+        alterarValorReposicao(valorReposicao);
+        this.dataCadastro = dataCadastro != null ? dataCadastro : LocalDate.now();
+        this.status = Boolean.FALSE.equals(ativo) ? Status.INATIVO : Status.ATIVO;
+        alterarCategoria(categoria);
+    }
+
+    public Long getId() {
+        return id;
     }
 
     public String getIsbn() {
         return isbn;
     }
 
-    public void setIsbn(String isbn) {
-        this.isbn = isbn;
-    }
-
     public String getTitulo() {
         return titulo;
-    }
-
-    public void setTitulo(String titulo) {
-        this.titulo = titulo;
     }
 
     public Integer getQuantidadeExemplares() {
         return quantidadeExemplares;
     }
 
-    public void setQuantidadeExemplares(Integer quantidadeExemplares) {
-        this.quantidadeExemplares = quantidadeExemplares;
-    }
-
     public BigDecimal getValorReposicao() {
         return valorReposicao;
-    }
-
-    public void setValorReposicao(BigDecimal valorReposicao) {
-        this.valorReposicao = valorReposicao;
     }
 
     public LocalDate getDataCadastro() {
         return dataCadastro;
     }
 
-    public void setDataCadastro(LocalDate dataCadastro) {
-        this.dataCadastro = dataCadastro;
+    public Status getStatus() {
+        return status;
     }
 
     public Boolean getAtivo() {
-        return ativo;
-    }
-
-    public void setAtivo(Boolean ativo) {
-        this.ativo = ativo;
+        return status == Status.ATIVO;
     }
 
     public CategoriaLivro getCategoria() {
         return categoria;
     }
 
-    public void setCategoria(CategoriaLivro categoria) {
+    public void alterarTitulo(String titulo) {
+        if (titulo == null || titulo.isBlank()) {
+            throw new IllegalArgumentException("O título do livro é obrigatório");
+        }
+        this.titulo = titulo.trim();
+    }
+
+    public void alterarValorReposicao(BigDecimal valorReposicao) {
+        if (valorReposicao == null || valorReposicao.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("O valor de reposição não pode ser negativo");
+        }
+        this.valorReposicao = valorReposicao;
+    }
+
+    public void alterarCategoria(CategoriaLivro categoria) {
+        if (categoria == null) {
+            throw new IllegalArgumentException("A categoria é obrigatória");
+        }
         this.categoria = categoria;
+    }
+
+    public void alterarStatus(Status status) {
+        if (status == null) {
+            throw new IllegalArgumentException("O status é obrigatório");
+        }
+        this.status = status;
+    }
+
+    public void receberExemplares(int quantidade) {
+        if (quantidade <= 0) {
+            throw new IllegalArgumentException("A quantidade de entrada deve ser maior que zero");
+        }
+        this.quantidadeExemplares += quantidade;
+    }
+
+    public void retirarExemplares(int quantidade) {
+        if (quantidade <= 0) {
+            throw new IllegalArgumentException("A quantidade de saída deve ser maior que zero");
+        }
+        if (this.quantidadeExemplares < quantidade) {
+            throw new IllegalArgumentException("Quantidade de exemplares insuficiente para retirada");
+        }
+        this.quantidadeExemplares -= quantidade;
+    }
+
+    private void definirQuantidadeInicial(Integer quantidadeExemplares) {
+        if (quantidadeExemplares == null || quantidadeExemplares < 0) {
+            throw new IllegalArgumentException("A quantidade de exemplares não pode ser negativa");
+        }
+        this.quantidadeExemplares = quantidadeExemplares;
     }
 
     @Transient
     public BigDecimal getValorTotal() {
-        return valorReposicao.multiply(
-                BigDecimal.valueOf(quantidadeExemplares)
-        );
+        BigDecimal valor = valorReposicao != null ? valorReposicao : BigDecimal.ZERO;
+        int qtd = quantidadeExemplares != null ? quantidadeExemplares : 0;
+        return valor.multiply(BigDecimal.valueOf(qtd));
     }
 }

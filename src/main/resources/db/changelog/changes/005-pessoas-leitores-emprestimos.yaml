@@ -1,0 +1,270 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-01-create-pessoa
+      author: curso-spring-2026
+      changes:
+        - createTable:
+            tableName: pessoa
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_pessoa
+                    nullable: false
+              - column:
+                  name: nome
+                  type: VARCHAR(150)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: email
+                  type: VARCHAR(180)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: cpf
+                  type: VARCHAR(11)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: data_cadastro
+                  type: DATE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: 005-02-constraints-pessoa
+      author: curso-spring-2026
+      changes:
+        - addUniqueConstraint:
+            tableName: pessoa
+            columnNames: cpf
+            constraintName: uk_pessoa_cpf
+        - addUniqueConstraint:
+            tableName: pessoa
+            columnNames: email
+            constraintName: uk_pessoa_email
+        - sql:
+            sql: >
+              ALTER TABLE pessoa
+              ADD CONSTRAINT ck_pessoa_cpf_formato
+              CHECK (cpf ~ '^[0-9]{11}$');
+              ALTER TABLE pessoa
+              ADD CONSTRAINT ck_pessoa_status
+              CHECK (status IN ('ATIVO', 'INATIVO'));
+
+  - changeSet:
+      id: 005-03-create-leitor
+      author: curso-spring-2026
+      changes:
+        - createTable:
+            tableName: leitor
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_leitor
+                    nullable: false
+              - column:
+                  name: pessoa_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: telefone
+                  type: VARCHAR(30)
+        - addForeignKeyConstraint:
+            baseTableName: leitor
+            baseColumnNames: pessoa_id
+            referencedTableName: pessoa
+            referencedColumnNames: id
+            constraintName: fk_leitor_pessoa
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            tableName: leitor
+            columnNames: pessoa_id
+            constraintName: uk_leitor_pessoa
+
+  - changeSet:
+      id: 005-04-create-bibliotecario
+      author: curso-spring-2026
+      changes:
+        - createTable:
+            tableName: bibliotecario
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_bibliotecario
+                    nullable: false
+              - column:
+                  name: pessoa_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: matricula
+                  type: VARCHAR(30)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: funcao
+                  type: VARCHAR(30)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: data_admissao
+                  type: DATE
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableName: bibliotecario
+            baseColumnNames: pessoa_id
+            referencedTableName: pessoa
+            referencedColumnNames: id
+            constraintName: fk_bibliotecario_pessoa
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            tableName: bibliotecario
+            columnNames: pessoa_id
+            constraintName: uk_bibliotecario_pessoa
+        - addUniqueConstraint:
+            tableName: bibliotecario
+            columnNames: matricula
+            constraintName: uk_bibliotecario_matricula
+        - sql:
+            sql: >
+              ALTER TABLE bibliotecario
+              ADD CONSTRAINT ck_bibliotecario_funcao
+              CHECK (funcao IN ('ATENDENTE', 'CATALOGADOR', 'COORDENADOR', 'ADMINISTRATIVO'));
+
+  - changeSet:
+      id: 005-05-create-emprestimo
+      author: curso-spring-2026
+      changes:
+        - createTable:
+            tableName: emprestimo
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_emprestimo
+                    nullable: false
+              - column:
+                  name: leitor_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: bibliotecario_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: data_emprestimo
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableName: emprestimo
+            baseColumnNames: leitor_id
+            referencedTableName: leitor
+            referencedColumnNames: id
+            constraintName: fk_emprestimo_leitor
+            onDelete: RESTRICT
+        - addForeignKeyConstraint:
+            baseTableName: emprestimo
+            baseColumnNames: bibliotecario_id
+            referencedTableName: bibliotecario
+            referencedColumnNames: id
+            constraintName: fk_emprestimo_bibliotecario
+            onDelete: RESTRICT
+        - sql:
+            sql: >
+              ALTER TABLE emprestimo
+              ADD CONSTRAINT ck_emprestimo_status
+              CHECK (status IN ('ABERTO', 'FINALIZADO', 'CANCELADO'));
+
+  - changeSet:
+      id: 005-06-create-item-emprestimo
+      author: curso-spring-2026
+      changes:
+        - createTable:
+            tableName: item_emprestimo
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_item_emprestimo
+                    nullable: false
+              - column:
+                  name: emprestimo_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: livro_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: quantidade
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+              - column:
+                  name: valor_reposicao_unitario
+                  type: DECIMAL(10,2)
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableName: item_emprestimo
+            baseColumnNames: emprestimo_id
+            referencedTableName: emprestimo
+            referencedColumnNames: id
+            constraintName: fk_item_emprestimo_emprestimo
+            onDelete: CASCADE
+        - addForeignKeyConstraint:
+            baseTableName: item_emprestimo
+            baseColumnNames: livro_id
+            referencedTableName: livros
+            referencedColumnNames: id
+            constraintName: fk_item_emprestimo_livro
+            onDelete: RESTRICT
+        - addUniqueConstraint:
+            tableName: item_emprestimo
+            columnNames: emprestimo_id, livro_id
+            constraintName: uk_item_emprestimo_livro
+        - sql:
+            sql: >
+              ALTER TABLE item_emprestimo
+              ADD CONSTRAINT ck_item_emprestimo_quantidade
+              CHECK (quantidade > 0);
+              ALTER TABLE item_emprestimo
+              ADD CONSTRAINT ck_item_emprestimo_valor
+              CHECK (valor_reposicao_unitario >= 0);
