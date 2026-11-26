@@ -41,8 +41,3 @@ Comando executado: `.\mvnw.cmd clean verify` em `C:\Projetos\biblioteca2026`.
 [INFO] Finished at: 2026-11-26T13:42:19-03:00
 [INFO] ------------------------------------------------------------------------
 ```
-
-## 6. Transferencia para o Projeto Tematico (Se Aplicavel)
-
-- **Contexto / tema**: aplicacao tematica da disciplina seguindo o mesmo padrao de `ProtecaoAutenticacao`, `EventoSeguranca` e `SessaoRefreshToken`.
-- **Justificativa de parametros (`maxFailedAttempts`, `failureWindow`, `lockDuration`)**: `5` falhas consecutivas dentro de `15m` com bloqueio de `15m` equilibram seguranca contra forca bruta e usabilidade para erro humano de digitacao sem gerar bloqueio prolongado.
