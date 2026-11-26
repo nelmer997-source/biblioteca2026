@@ -100,7 +100,7 @@ public class ContaAcesso {
     }
 
     public void substituirPerfis(Set<PerfilAcesso> novosPerfis) {
-        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.contains(null)) {
+        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("A conta deve possuir ao menos um perfil");
         }
         this.perfis.clear();

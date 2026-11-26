@@ -27,6 +27,10 @@ public class TokenService {
     }
 
     public TokenAcesso emitir(Authentication authentication) {
+        return emitir(authentication, UUID.randomUUID().toString());
+    }
+
+    public TokenAcesso emitir(Authentication authentication, String sessaoId) {
         Instant emitidoEm = clock.instant();
         Instant expiraEm = emitidoEm.plus(properties.expiration());
 
@@ -37,17 +41,20 @@ public class TokenService {
                 .sorted()
                 .toList();
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .issuedAt(emitidoEm)
                 .expiresAt(expiraEm)
                 .subject(authentication.getName())
                 .id(UUID.randomUUID().toString())
-                .claim("perfis", perfis)
-                .build();
+                .claim("perfis", perfis);
+
+        if (sessaoId != null && !sessaoId.isBlank()) {
+            claimsBuilder.claim("sid", sessaoId);
+        }
 
         String valor = encoder
-                .encode(JwtEncoderParameters.from(claims))
+                .encode(JwtEncoderParameters.from(claimsBuilder.build()))
                 .getTokenValue();
 
         return new TokenAcesso(valor, expiraEm, properties.expiration().toSeconds());

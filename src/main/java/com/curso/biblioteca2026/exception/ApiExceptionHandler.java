@@ -15,9 +15,9 @@ import java.util.Map;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @ExceptionHandler(CredenciaisInvalidasException.class)
-    public ResponseEntity<ApiError> tratarCredenciaisInvalidas(
-            CredenciaisInvalidasException exception,
+    @ExceptionHandler({CredenciaisInvalidasException.class, RefreshTokenInvalidoException.class})
+    public ResponseEntity<ApiError> tratarNaoAutorizado(
+            RuntimeException exception,
             HttpServletRequest request) {
 
         return construirResposta(

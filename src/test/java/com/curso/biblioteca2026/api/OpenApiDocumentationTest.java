@@ -50,12 +50,18 @@ class OpenApiDocumentationTest {
                 .andExpect(jsonPath("$.paths['/api/contas-acesso/me'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/contas-acesso/me/senha'].put").exists())
                 .andExpect(jsonPath("$.paths['/api/autenticacao/login'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/refresh'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/logout'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/logout-todos'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/auditoria-seguranca'].get").exists())
                 .andExpect(jsonPath("$.components.schemas.LivroResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.EmprestimoResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ContaAcessoResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.PerfisContaAcessoRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.StatusContaAcessoRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.RefreshTokenRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.TokenResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.EventoSegurancaResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ApiError").exists());
     }
 }

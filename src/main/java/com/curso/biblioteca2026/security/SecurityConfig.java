@@ -1,6 +1,8 @@
 package com.curso.biblioteca2026.security;
 
 import com.curso.biblioteca2026.config.AdministradorInicialProperties;
+import com.curso.biblioteca2026.config.ProtecaoAutenticacaoProperties;
+import com.curso.biblioteca2026.config.RefreshTokenProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +21,11 @@ import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(AdministradorInicialProperties.class)
+@EnableConfigurationProperties({
+        AdministradorInicialProperties.class,
+        RefreshTokenProperties.class,
+        ProtecaoAutenticacaoProperties.class
+})
 public class SecurityConfig {
 
     @Bean
@@ -59,8 +65,13 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/swagger-ui/**")
                         .permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/autenticacao/login")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/autenticacao/login",
+                                "/api/autenticacao/refresh",
+                                "/api/autenticacao/logout")
                         .permitAll()
+                        .requestMatchers("/api/auditoria-seguranca/**")
+                        .hasRole("ADMINISTRADOR")
                         .requestMatchers(HttpMethod.POST, "/api/contas-acesso")
                         .hasRole("ADMINISTRADOR")
                         .requestMatchers(

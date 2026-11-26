@@ -7,14 +7,18 @@ import com.curso.biblioteca2026.model.PerfilAcesso;
 import com.curso.biblioteca2026.model.Pessoa;
 import com.curso.biblioteca2026.model.Status;
 import com.curso.biblioteca2026.model.StatusContaAcesso;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
 import com.curso.biblioteca2026.repository.ContaAcessoRepository;
 import com.curso.biblioteca2026.repository.PessoaRepository;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -27,14 +31,17 @@ public class ContaAcessoService {
     private final ContaAcessoRepository repository;
     private final PessoaRepository pessoaRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditoriaSegurancaService auditoriaService;
 
     public ContaAcessoService(
             ContaAcessoRepository repository,
             PessoaRepository pessoaRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            AuditoriaSegurancaService auditoriaService) {
         this.repository = repository;
         this.pessoaRepository = pessoaRepository;
         this.passwordEncoder = passwordEncoder;
+        this.auditoriaService = auditoriaService;
     }
 
     public ContaAcesso buscarPorId(Long id) {
@@ -69,13 +76,21 @@ public class ContaAcessoService {
         validarSenha(senhaAberta);
         String senhaHash = passwordEncoder.encode(senhaAberta);
 
-        return repository.save(new ContaAcesso(pessoa, loginLimpo, senhaHash));
+        ContaAcesso contaSalva = repository.save(new ContaAcesso(pessoa, loginLimpo, senhaHash));
+        auditoriaService.registrar(
+                TipoEventoSeguranca.CONTA_CRIADA,
+                resolverAtorAutenticadoId(),
+                contaSalva.getId(),
+                null,
+                null
+        );
+        return contaSalva;
     }
 
     @Transactional
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ContaAcesso alterarPerfis(Long id, Set<PerfilAcesso> novosPerfis, String loginAutenticado) {
-        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.contains(null)) {
+        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("A conta deve possuir ao menos um perfil");
         }
 
@@ -94,6 +109,16 @@ public class ContaAcessoService {
         }
 
         conta.substituirPerfis(novosPerfis);
+        Long atorId = repository.findByLoginIgnoreCase(loginAdmin)
+                .map(ContaAcesso::getId)
+                .orElseGet(this::resolverAtorAutenticadoId);
+        auditoriaService.registrar(
+                TipoEventoSeguranca.PERFIS_ALTERADOS,
+                atorId,
+                conta.getId(),
+                null,
+                null
+        );
         return conta;
     }
 
@@ -123,6 +148,16 @@ public class ContaAcessoService {
         } else {
             conta.bloquear();
         }
+        Long atorId = repository.findByLoginIgnoreCase(loginAdmin)
+                .map(ContaAcesso::getId)
+                .orElseGet(this::resolverAtorAutenticadoId);
+        auditoriaService.registrar(
+                TipoEventoSeguranca.STATUS_ALTERADO,
+                atorId,
+                conta.getId(),
+                null,
+                null
+        );
         return conta;
     }
 
@@ -143,6 +178,23 @@ public class ContaAcessoService {
         }
 
         conta.alterarSenha(passwordEncoder.encode(novaSenha));
+        auditoriaService.registrar(
+                TipoEventoSeguranca.SENHA_ALTERADA,
+                conta.getId(),
+                conta.getId(),
+                null,
+                null
+        );
+    }
+
+    private Long resolverAtorAutenticadoId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || authentication.getName() == null) {
+            return null;
+        }
+        return repository.findByLoginIgnoreCase(authentication.getName().trim())
+                .map(ContaAcesso::getId)
+                .orElse(null);
     }
 
     private long quantidadeAdministradoresAtivos() {

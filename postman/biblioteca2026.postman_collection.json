@@ -1,0 +1,176 @@
+{
+    "info":  {
+                 "name":  "Biblioteca 2026 API - Ciclo de Tokens",
+                 "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+             },
+    "variable":  [
+                     {
+                         "key":  "baseUrl",
+                         "value":  "http://localhost:8080"
+                     },
+                     {
+                         "key":  "accessToken",
+                         "value":  ""
+                     },
+                     {
+                         "key":  "refreshToken",
+                         "value":  ""
+                     }
+                 ],
+    "item":  [
+                 {
+                     "name":  "Autenticacao - Login",
+                     "event":  [
+                                   {
+                                       "listen":  "test",
+                                       "script":  {
+                                                      "exec":  [
+                                                                   "const data = pm.response.json();",
+                                                                   "if (data.accessToken) pm.collectionVariables.set(\u0027accessToken\u0027, data.accessToken);",
+                                                                   "if (data.refreshToken) pm.collectionVariables.set(\u0027refreshToken\u0027, data.refreshToken);"
+                                                               ],
+                                                      "type":  "text/javascript"
+                                                  }
+                                   }
+                               ],
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/autenticacao/login",
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"login\": \"admin\",\n  \"senha\": \"{{adminPassword}}\"\n}"
+                                              }
+                                 }
+                 },
+                 {
+                     "name":  "Autenticacao - Refresh com Rotacao",
+                     "event":  [
+                                   {
+                                       "listen":  "test",
+                                       "script":  {
+                                                      "exec":  [
+                                                                   "const data = pm.response.json();",
+                                                                   "if (data.accessToken) pm.collectionVariables.set(\u0027accessToken\u0027, data.accessToken);",
+                                                                   "if (data.refreshToken) pm.collectionVariables.set(\u0027refreshToken\u0027, data.refreshToken);"
+                                                               ],
+                                                      "type":  "text/javascript"
+                                                  }
+                                   }
+                               ],
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/autenticacao/refresh",
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+                                              }
+                                 }
+                 },
+                 {
+                     "name":  "Autenticacao - Logout Local",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/autenticacao/logout",
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+                                              }
+                                 }
+                 },
+                 {
+                     "name":  "Autenticacao - Logout Global",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{accessToken}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/autenticacao/logout-todos"
+                                 }
+                 },
+                 {
+                     "name":  "11 — Proteção e auditoria da autenticação",
+                     "item":  [
+                                  {
+                                      "name":  "Login com identificador desconhecido (401 genérico)",
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\u0027Status 401\u0027, () =\u003e pm.response.to.have.status(401));",
+                                                                                    "const body = pm.response.json();",
+                                                                                    "pm.test(\u0027Mensagem genérica\u0027, () =\u003e pm.expect(body.message).to.eql(\u0027Login ou senha inválidos\u0027));"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ],
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"login\": \"desconhecido.aula17\",\n  \"senha\": \"senha-incorreta-2026\"\n}"
+                                                               },
+                                                      "url":  "{{baseUrl}}/api/autenticacao/login"
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Consultar auditoria de segurança (ADMINISTRADOR)",
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\u0027Status 200\u0027, () =\u003e pm.response.to.have.status(200));",
+                                                                                    "const text = pm.response.text();",
+                                                                                    "pm.test(\u0027Não expõe identificadorHash nem segredos\u0027, () =\u003e {",
+                                                                                    "  pm.expect(text).to.not.include(\u0027identificadorHash\u0027);",
+                                                                                    "  pm.expect(text).to.not.include(\u0027senha-incorreta-2026\u0027);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ],
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Authorization",
+                                                                         "value":  "Bearer {{adminAccessToken}}"
+                                                                     }
+                                                                 ],
+                                                      "url":  "{{baseUrl}}/api/auditoria-seguranca?tipo=LOGIN_FALHA\u0026page=0\u0026size=20"
+                                                  }
+                                  }
+                              ]
+                 }
+             ]
+}

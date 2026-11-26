@@ -40,6 +40,62 @@ public class HealthController {
     }
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\config\AdministradorInicialProperties.java ===
+package com.curso.biblioteca2026.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "app.security.initial-admin")
+public record AdministradorInicialProperties(
+        boolean enabled,
+        String nome,
+        String email,
+        String cpf,
+        String login,
+        String senha
+) {
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\config\AdministradorInicialRunner.java ===
+package com.curso.biblioteca2026.config;
+
+import com.curso.biblioteca2026.service.AdministradorInicialService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+@Component
+@ConditionalOnProperty(
+        name = "app.security.initial-admin.enabled",
+        havingValue = "true")
+public class AdministradorInicialRunner implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(AdministradorInicialRunner.class);
+
+    private final AdministradorInicialService service;
+    private final AdministradorInicialProperties properties;
+
+    public AdministradorInicialRunner(
+            AdministradorInicialService service,
+            AdministradorInicialProperties properties) {
+        this.service = service;
+        this.properties = properties;
+    }
+
+    @Override
+    public void run(ApplicationArguments args) {
+        service.criarSeNecessario(properties).ifPresentOrElse(
+                conta -> log.info(
+                        "Conta administrativa inicial criada para o login '{}'. Desative INITIAL_ADMIN_ENABLED apÃ³s a primeira execuÃ§Ã£o.",
+                        conta.getLogin()),
+                () -> log.info("Conta administrativa ativa jÃ¡ existente; nenhuma nova conta inicial foi criada.")
+        );
+    }
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\config\JwtConfig.java ===
 package com.curso.biblioteca2026.config;
 
@@ -150,14 +206,122 @@ public class OpenApiConfig {
     }
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\config\ProtecaoAutenticacaoProperties.java ===
+package com.curso.biblioteca2026.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+
+@ConfigurationProperties(prefix = "app.security.authentication-protection")
+public record ProtecaoAutenticacaoProperties(
+        int maxFailedAttempts,
+        Duration failureWindow,
+        Duration lockDuration) {
+
+    public ProtecaoAutenticacaoProperties {
+        if (maxFailedAttempts < 1) {
+            throw new IllegalArgumentException("MÃ¡ximo de falhas deve ser positivo");
+        }
+        if (failureWindow == null || failureWindow.isZero() || failureWindow.isNegative()) {
+            throw new IllegalArgumentException("Janela de falhas deve ser positiva");
+        }
+        if (lockDuration == null || lockDuration.isZero() || lockDuration.isNegative()) {
+            throw new IllegalArgumentException("DuraÃ§Ã£o do bloqueio deve ser positiva");
+        }
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\config\RefreshTokenProperties.java ===
+package com.curso.biblioteca2026.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+
+@ConfigurationProperties(prefix = "app.security.refresh-token")
+public record RefreshTokenProperties(
+        Duration idleTimeout,
+        Duration absoluteExpiration) {
+
+    public RefreshTokenProperties {
+        if (idleTimeout == null || idleTimeout.isNegative() || idleTimeout.isZero()) {
+            throw new IllegalArgumentException("Idle timeout deve ser positivo");
+        }
+        if (absoluteExpiration == null || absoluteExpiration.compareTo(idleTimeout) <= 0) {
+            throw new IllegalArgumentException("ExpiraÃ§Ã£o absoluta deve ser maior que o idle timeout");
+        }
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\controller\AuditoriaSegurancaController.java ===
+package com.curso.biblioteca2026.controller;
+
+import com.curso.biblioteca2026.dto.EventoSegurancaResponse;
+import com.curso.biblioteca2026.dto.PaginaResponse;
+import com.curso.biblioteca2026.exception.ApiError;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
+import com.curso.biblioteca2026.service.AuditoriaSegurancaService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@Tag(name = "Auditoria de SeguranÃ§a", description = "Consulta administrativa da trilha de eventos de seguranÃ§a")
+@RestController
+@RequestMapping("/api/auditoria-seguranca")
+public class AuditoriaSegurancaController {
+
+    private final AuditoriaSegurancaService service;
+
+    public AuditoriaSegurancaController(AuditoriaSegurancaService service) {
+        this.service = service;
+    }
+
+    @Operation(
+            summary = "Consultar eventos de seguranÃ§a",
+            description = "Retorna eventos de seguranÃ§a paginados em ordem cronolÃ³gica decrescente. Requer perfil ADMINISTRADOR."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Consulta realizada com sucesso"),
+            @ApiResponse(responseCode = "400", description = "ParÃ¢metros de consulta invÃ¡lidos",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou invÃ¡lido"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado: requer perfil ADMINISTRADOR")
+    })
+    @GetMapping
+    public PaginaResponse<EventoSegurancaResponse> consultar(
+            @Parameter(description = "Tipo do evento de seguranÃ§a")
+            @RequestParam(required = false) TipoEventoSeguranca tipo,
+            @Parameter(description = "ConfiguraÃ§Ã£o de paginaÃ§Ã£o e ordenaÃ§Ã£o (page, size, sort)")
+            @PageableDefault(size = 20, sort = "ocorridoEm", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        Page<EventoSegurancaResponse> pagina = service.consultar(tipo, pageable)
+                .map(EventoSegurancaResponse::from);
+        return PaginaResponse.from(pagina);
+    }
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\controller\AutenticacaoController.java ===
 package com.curso.biblioteca2026.controller;
 
 import com.curso.biblioteca2026.dto.LoginRequest;
+import com.curso.biblioteca2026.dto.RefreshTokenRequest;
 import com.curso.biblioteca2026.dto.TokenResponse;
 import com.curso.biblioteca2026.exception.ApiError;
-import com.curso.biblioteca2026.security.TokenAcesso;
 import com.curso.biblioteca2026.service.AutenticacaoService;
+import com.curso.biblioteca2026.service.SessaoAutenticacaoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -165,43 +329,94 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "AutenticaÃ§Ã£o", description = "EmissÃ£o de JSON Web Token (JWT) a partir de credenciais vÃ¡lidas")
+@Tag(name = "AutenticaÃ§Ã£o", description = "EmissÃ£o, renovaÃ§Ã£o com rotaÃ§Ã£o e encerramento de tokens de sessÃ£o")
 @RestController
 @RequestMapping("/api/autenticacao")
 public class AutenticacaoController {
 
-    private final AutenticacaoService service;
+    private final AutenticacaoService autenticacaoService;
+    private final SessaoAutenticacaoService sessaoAutenticacaoService;
 
-    public AutenticacaoController(AutenticacaoService service) {
-        this.service = service;
+    public AutenticacaoController(
+            AutenticacaoService autenticacaoService,
+            SessaoAutenticacaoService sessaoAutenticacaoService) {
+        this.autenticacaoService = autenticacaoService;
+        this.sessaoAutenticacaoService = sessaoAutenticacaoService;
     }
 
     @Operation(
-            summary = "Autenticar e emitir JWT",
-            description = "Valida login e senha da conta ativa e emite um Bearer Token JWT vÃ¡lido por 30 minutos."
+            summary = "Autenticar e emitir par de tokens",
+            description = "Valida login e senha da conta ativa e emite um Bearer Token JWT e um refresh token opaco de uso Ãºnico."
     )
     @SecurityRequirements
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Token emitido com sucesso"),
+            @ApiResponse(responseCode = "200", description = "Tokens emitidos com sucesso"),
             @ApiResponse(responseCode = "400", description = "Dados de entrada invÃ¡lidos",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "401", description = "Login ou senha invÃ¡lidos",
                     content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     @PostMapping("/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-        TokenAcesso token = service.autenticar(request.login(), request.senha());
-        return new TokenResponse(
-                token.valor(),
-                "Bearer",
-                token.duracaoSegundos(),
-                token.expiraEm());
+    public TokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        return TokenResponse.from(
+                autenticacaoService.autenticar(request.login(), request.senha(), httpRequest.getRemoteAddr())
+        );
+    }
+
+    @Operation(
+            summary = "Renovar par de tokens com rotaÃ§Ã£o",
+            description = "Consome o refresh token atual e emite um novo par (access + refresh) na mesma famÃ­lia de sessÃ£o."
+    )
+    @SecurityRequirements
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Tokens renovados com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Dados de entrada invÃ¡lidos",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Refresh token invÃ¡lido ou expirado",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    @PostMapping("/refresh")
+    public TokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return TokenResponse.from(sessaoAutenticacaoService.renovar(request.refreshToken()));
+    }
+
+    @Operation(
+            summary = "Encerrar sessÃ£o atual (logout local)",
+            description = "Revoga a famÃ­lia de sessÃ£o vinculada ao refresh token informado."
+    )
+    @SecurityRequirements
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "SessÃ£o encerrada"),
+            @ApiResponse(responseCode = "400", description = "Dados de entrada invÃ¡lidos",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        sessaoAutenticacaoService.encerrar(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(
+            summary = "Encerrar todas as sessÃµes da conta (logout global)",
+            description = "Revoga todas as famÃ­lias de refresh tokens ativas da conta autenticada."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Todas as sessÃµes encerradas"),
+            @ApiResponse(responseCode = "401", description = "Token de acesso ausente ou invÃ¡lido")
+    })
+    @PostMapping("/logout-todos")
+    public ResponseEntity<Void> logoutTodos(Authentication authentication) {
+        sessaoAutenticacaoService.encerrarTodas(authentication.getName());
+        return ResponseEntity.noContent().build();
     }
 }
 
@@ -476,6 +691,8 @@ package com.curso.biblioteca2026.controller;
 import com.curso.biblioteca2026.dto.AlterarSenhaRequest;
 import com.curso.biblioteca2026.dto.ContaAcessoRequest;
 import com.curso.biblioteca2026.dto.ContaAcessoResponse;
+import com.curso.biblioteca2026.dto.PerfisContaAcessoRequest;
+import com.curso.biblioteca2026.dto.StatusContaAcessoRequest;
 import com.curso.biblioteca2026.exception.ApiError;
 import com.curso.biblioteca2026.mapper.ContaAcessoMapper;
 import com.curso.biblioteca2026.model.ContaAcesso;
@@ -485,7 +702,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -495,7 +711,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
 
-@Tag(name = "Contas de Acesso", description = "Cadastro de credenciais, consulta da conta autenticada e troca de senha")
+@Tag(name = "Contas de Acesso", description = "Cadastro, administraÃ§Ã£o de perfis e status, consulta da conta autenticada e troca de senha")
 @RestController
 @RequestMapping("/api/contas-acesso")
 public class ContaAcessoController {
@@ -510,13 +726,14 @@ public class ContaAcessoController {
 
     @Operation(
             summary = "Cadastrar conta de acesso",
-            description = "Endpoint pÃºblico provisÃ³rio de bootstrap. Cria conta ativa com perfil OPERADOR e armazena apenas hash BCrypt."
+            description = "Cria conta ativa com perfil OPERADOR e armazena apenas hash BCrypt. Requer perfil ADMINISTRADOR."
     )
-    @SecurityRequirements
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Conta de acesso criada"),
             @ApiResponse(responseCode = "400", description = "Dados invÃ¡lidos ou pessoa inativa",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou invÃ¡lido"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado: requer perfil ADMINISTRADOR"),
             @ApiResponse(responseCode = "404", description = "Pessoa nÃ£o encontrada",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "409", description = "Pessoa ou login jÃ¡ cadastrado",
@@ -531,6 +748,50 @@ public class ContaAcessoController {
                 .buildAndExpand(conta.getId())
                 .toUri();
         return ResponseEntity.created(location).body(mapper.toResponse(conta));
+    }
+
+    @Operation(
+            summary = "Alterar perfis de uma conta de acesso",
+            description = "Substitui os perfis da conta informada, protegendo o Ãºltimo administrador ativo. Requer perfil ADMINISTRADOR."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Perfis atualizados com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Dados invÃ¡lidos ou violaÃ§Ã£o de invariante administrativa",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou invÃ¡lido"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado: requer perfil ADMINISTRADOR"),
+            @ApiResponse(responseCode = "404", description = "Conta de acesso nÃ£o encontrada",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    @PutMapping("/{id}/perfis")
+    public ContaAcessoResponse alterarPerfis(
+            @PathVariable Long id,
+            @Valid @RequestBody PerfisContaAcessoRequest request,
+            Authentication authentication) {
+        ContaAcesso conta = service.alterarPerfis(id, request.perfis(), authentication.getName());
+        return mapper.toResponse(conta);
+    }
+
+    @Operation(
+            summary = "Ativar ou bloquear conta de acesso",
+            description = "Altera o status da conta entre ATIVA e BLOQUEADA, protegendo a prÃ³pria conta e o Ãºltimo administrador ativo. Requer perfil ADMINISTRADOR."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Status da conta atualizado com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Dados invÃ¡lidos ou violaÃ§Ã£o de invariante administrativa",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou invÃ¡lido"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado: requer perfil ADMINISTRADOR"),
+            @ApiResponse(responseCode = "404", description = "Conta de acesso nÃ£o encontrada",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    @PutMapping("/{id}/status")
+    public ContaAcessoResponse alterarStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody StatusContaAcessoRequest request,
+            Authentication authentication) {
+        ContaAcesso conta = service.alterarStatus(id, request.status(), authentication.getName());
+        return mapper.toResponse(conta);
     }
 
     @Operation(summary = "Consultar dados da conta autenticada")
@@ -1022,7 +1283,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -1076,12 +1336,12 @@ public class PessoaController {
         return mapper.toResponse(service.buscarPorId(id));
     }
 
-    @Operation(summary = "Cadastrar pessoa", description = "Endpoint pÃºblico provisÃ³rio de bootstrap para criaÃ§Ã£o da pessoa inicial.")
-    @SecurityRequirements
+    @Operation(summary = "Cadastrar pessoa", description = "Cadastra uma nova pessoa ativa. Requer autenticaÃ§Ã£o.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Pessoa cadastrada"),
             @ApiResponse(responseCode = "400", description = "Dados ou CPF invÃ¡lidos",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou invÃ¡lido"),
             @ApiResponse(responseCode = "409", description = "CPF ou e-mail jÃ¡ cadastrado",
                     content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
@@ -1433,6 +1693,48 @@ public record EmprestimoResumoResponse(
 ) {
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\EventoSegurancaResponse.java ===
+package com.curso.biblioteca2026.dto;
+
+import com.curso.biblioteca2026.model.EventoSeguranca;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import java.time.Instant;
+
+@Schema(description = "RepresentaÃ§Ã£o de resposta de um evento de seguranÃ§a auditado")
+public record EventoSegurancaResponse(
+        @Schema(description = "Identificador do evento", example = "1")
+        Long id,
+
+        @Schema(description = "Tipo do evento de seguranÃ§a", example = "LOGIN_FALHA")
+        TipoEventoSeguranca tipo,
+
+        @Schema(description = "Instante de ocorrÃªncia em UTC", example = "2026-11-26T16:00:00Z")
+        Instant ocorridoEm,
+
+        @Schema(description = "Identificador histÃ³rico da conta que iniciou a aÃ§Ã£o, quando conhecida", example = "1")
+        Long atorContaId,
+
+        @Schema(description = "Identificador histÃ³rico da conta afetada, quando conhecida", example = "2")
+        Long alvoContaId,
+
+        @Schema(description = "EndereÃ§o de origem observado na conexÃ£o", example = "127.0.0.1")
+        String enderecoOrigem
+) {
+
+    public static EventoSegurancaResponse from(EventoSeguranca evento) {
+        return new EventoSegurancaResponse(
+                evento.getId(),
+                evento.getTipo(),
+                evento.getOcorridoEm(),
+                evento.getAtorContaId(),
+                evento.getAlvoContaId(),
+                evento.getEnderecoOrigem()
+        );
+    }
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\ItemEmprestimoRequest.java ===
 package com.curso.biblioteca2026.dto;
 
@@ -1738,6 +2040,23 @@ public record PaginaResponse<T>(
 }
 
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\PerfisContaAcessoRequest.java ===
+package com.curso.biblioteca2026.dto;
+
+import com.curso.biblioteca2026.model.PerfilAcesso;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotEmpty;
+
+import java.util.Set;
+
+@Schema(description = "Dados para substituiÃ§Ã£o dos perfis de uma conta de acesso")
+public record PerfisContaAcessoRequest(
+        @Schema(description = "Novo conjunto de perfis da conta", example = "[\"OPERADOR\", \"ADMINISTRADOR\"]")
+        @NotEmpty(message = "Informe ao menos um perfil")
+        Set<PerfilAcesso> perfis
+) {
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\PessoaRequest.java ===
 package com.curso.biblioteca2026.dto;
 
@@ -1797,6 +2116,37 @@ public record PessoaResponse(
 ) {
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\RefreshTokenRequest.java ===
+package com.curso.biblioteca2026.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+@Schema(description = "RequisiÃ§Ã£o contendo o refresh token opaco da sessÃ£o")
+public record RefreshTokenRequest(
+        @Schema(description = "Refresh token opaco recebido no login ou na Ãºltima renovaÃ§Ã£o", example = "dGhpc2lzYXNhbXBsZXJlZnJlc2h0b2tlbjIwMjY")
+        @NotBlank(message = "Refresh token Ã© obrigatÃ³rio")
+        @Size(max = 256, message = "Refresh token invÃ¡lido")
+        String refreshToken
+) {
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\StatusContaAcessoRequest.java ===
+package com.curso.biblioteca2026.dto;
+
+import com.curso.biblioteca2026.model.StatusContaAcesso;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
+
+@Schema(description = "Dados para alteraÃ§Ã£o do status de uma conta de acesso")
+public record StatusContaAcessoRequest(
+        @Schema(description = "Novo status da conta (ATIVA ou BLOQUEADA)", example = "BLOQUEADA")
+        @NotNull(message = "Status Ã© obrigatÃ³rio")
+        StatusContaAcesso status
+) {
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\StatusRequest.java ===
 package com.curso.biblioteca2026.dto;
 
@@ -1816,11 +2166,12 @@ public record StatusRequest(
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\dto\TokenResponse.java ===
 package com.curso.biblioteca2026.dto;
 
+import com.curso.biblioteca2026.security.TokensAutenticacao;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 
-@Schema(description = "Resposta contendo o token de acesso JWT")
+@Schema(description = "Resposta contendo o par de tokens de acesso e renovaÃ§Ã£o")
 public record TokenResponse(
         @Schema(description = "Token JWT assinado", example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
         String accessToken,
@@ -1828,12 +2179,33 @@ public record TokenResponse(
         @Schema(description = "Esquema de autenticaÃ§Ã£o", example = "Bearer")
         String tokenType,
 
-        @Schema(description = "Tempo de validade em segundos", example = "1800")
+        @Schema(description = "Tempo de validade do access token em segundos", example = "1800")
         long expiresIn,
 
-        @Schema(description = "Instante de expiraÃ§Ã£o em UTC", example = "2026-11-25T20:30:00Z")
-        Instant expiresAt
+        @Schema(description = "Instante de expiraÃ§Ã£o do access token em UTC", example = "2026-11-25T20:30:00Z")
+        Instant expiresAt,
+
+        @Schema(description = "Refresh token opaco de uso Ãºnico para renovaÃ§Ã£o da sessÃ£o", example = "4f8d9a2b7c1e6f3a0b5d8c2e7a1f4b9c")
+        String refreshToken,
+
+        @Schema(description = "Instante de expiraÃ§Ã£o absoluta da famÃ­lia de sessÃ£o em UTC", example = "2026-11-26T04:00:00Z")
+        Instant refreshTokenExpiresAt
 ) {
+
+    public TokenResponse(String accessToken, String tokenType, long expiresIn, Instant expiresAt) {
+        this(accessToken, tokenType, expiresIn, expiresAt, null, null);
+    }
+
+    public static TokenResponse from(TokensAutenticacao tokens) {
+        return new TokenResponse(
+                tokens.accessToken().valor(),
+                "Bearer",
+                tokens.accessToken().duracaoSegundos(),
+                tokens.accessToken().expiraEm(),
+                tokens.refreshToken(),
+                tokens.refreshTokenExpiraEm()
+        );
+    }
 }
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\exception\ApiError.java ===
@@ -1885,9 +2257,9 @@ import java.util.Map;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @ExceptionHandler(CredenciaisInvalidasException.class)
-    public ResponseEntity<ApiError> tratarCredenciaisInvalidas(
-            CredenciaisInvalidasException exception,
+    @ExceptionHandler({CredenciaisInvalidasException.class, RefreshTokenInvalidoException.class})
+    public ResponseEntity<ApiError> tratarNaoAutorizado(
+            RuntimeException exception,
             HttpServletRequest request) {
 
         return construirResposta(
@@ -2020,6 +2392,20 @@ public class RecursoNaoEncontradoException extends RuntimeException {
     }
 }
 
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\exception\RefreshTokenInvalidoException.java ===
+package com.curso.biblioteca2026.exception;
+
+public class RefreshTokenInvalidoException extends RuntimeException {
+
+    public RefreshTokenInvalidoException() {
+        super("Refresh token invÃ¡lido ou expirado");
+    }
+
+    public RefreshTokenInvalidoException(String message) {
+        super(message);
+    }
+}
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\mapper\BibliotecarioMapper.java ===
 package com.curso.biblioteca2026.mapper;
@@ -2406,10 +2792,26 @@ public class ContaAcesso {
         return Collections.unmodifiableSet(perfis);
     }
 
+    public boolean possuiPerfil(PerfilAcesso perfil) {
+        return perfil != null && this.perfis.contains(perfil);
+    }
+
     public boolean podeAutenticar() {
         return this.status == StatusContaAcesso.ATIVA
                 && this.pessoa != null
                 && this.pessoa.getStatus() == Status.ATIVO;
+    }
+
+    public void concederPerfil(PerfilAcesso perfil) {
+        this.perfis.add(Objects.requireNonNull(perfil, "Perfil Ã© obrigatÃ³rio"));
+    }
+
+    public void substituirPerfis(Set<PerfilAcesso> novosPerfis) {
+        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("A conta deve possuir ao menos um perfil");
+        }
+        this.perfis.clear();
+        this.perfis.addAll(novosPerfis);
     }
 
     public void alterarSenha(String novoSenhaHash) {
@@ -2622,6 +3024,115 @@ public class Emprestimo {
         if (this.status != StatusEmprestimo.ABERTO) {
             throw new IllegalStateException("Somente emprÃ©stimos abertos podem ser alterados");
         }
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\EventoSeguranca.java ===
+package com.curso.biblioteca2026.model;
+
+import jakarta.persistence.*;
+
+import java.time.Instant;
+import java.util.Objects;
+
+@Entity
+@Table(name = "evento_seguranca")
+public class EventoSeguranca {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 40)
+    private TipoEventoSeguranca tipo;
+
+    @Column(name = "ocorrido_em", nullable = false)
+    private Instant ocorridoEm;
+
+    @Column(name = "ator_conta_id")
+    private Long atorContaId;
+
+    @Column(name = "alvo_conta_id")
+    private Long alvoContaId;
+
+    @Column(name = "identificador_hash", length = 64)
+    private String identificadorHash;
+
+    @Column(name = "endereco_origem", length = 45)
+    private String enderecoOrigem;
+
+    protected EventoSeguranca() {
+    }
+
+    public EventoSeguranca(
+            TipoEventoSeguranca tipo,
+            Instant ocorridoEm,
+            Long atorContaId,
+            Long alvoContaId,
+            String identificadorHash,
+            String enderecoOrigem) {
+        this.tipo = Objects.requireNonNull(tipo, "Tipo do evento Ã© obrigatÃ³rio");
+        this.ocorridoEm = Objects.requireNonNull(ocorridoEm, "Instante do evento Ã© obrigatÃ³rio");
+        this.atorContaId = atorContaId;
+        this.alvoContaId = alvoContaId;
+        this.identificadorHash = validarIdentificadorHash(identificadorHash);
+        this.enderecoOrigem = validarEnderecoOrigem(enderecoOrigem);
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public TipoEventoSeguranca getTipo() {
+        return tipo;
+    }
+
+    public Instant getOcorridoEm() {
+        return ocorridoEm;
+    }
+
+    public Long getAtorContaId() {
+        return atorContaId;
+    }
+
+    public Long getAlvoContaId() {
+        return alvoContaId;
+    }
+
+    public String getIdentificadorHash() {
+        return identificadorHash;
+    }
+
+    public String getEnderecoOrigem() {
+        return enderecoOrigem;
+    }
+
+    private static String validarIdentificadorHash(String hash) {
+        if (hash == null) {
+            return null;
+        }
+        if (!hash.matches("^[0-9a-f]{64}$")) {
+            throw new IllegalArgumentException("Identificador hash invÃ¡lido");
+        }
+        return hash;
+    }
+
+    private static String validarEnderecoOrigem(String origem) {
+        if (origem == null) {
+            return null;
+        }
+        if (origem.contains("\r") || origem.contains("\n")) {
+            throw new IllegalArgumentException("EndereÃ§o de origem invÃ¡lido");
+        }
+        String valor = origem.trim();
+        if (valor.isEmpty()) {
+            return null;
+        }
+        if (valor.length() > 45) {
+            throw new IllegalArgumentException("EndereÃ§o de origem invÃ¡lido");
+        }
+        return valor;
     }
 }
 
@@ -2934,6 +3445,18 @@ public class Livro {
 }
 
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\MotivoRevogacaoRefreshToken.java ===
+package com.curso.biblioteca2026.model;
+
+public enum MotivoRevogacaoRefreshToken {
+    LOGOUT,
+    LOGOUT_GLOBAL,
+    INATIVIDADE,
+    EXPIRACAO_ABSOLUTA,
+    REUTILIZACAO,
+    CONTA_INATIVA
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\PerfilAcesso.java ===
 package com.curso.biblioteca2026.model;
 
@@ -3055,6 +3578,297 @@ public class Pessoa {
     }
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\ProtecaoAutenticacao.java ===
+package com.curso.biblioteca2026.model;
+
+import jakarta.persistence.*;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+
+@Entity
+@Table(name = "protecao_autenticacao")
+public class ProtecaoAutenticacao {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "chave_login", nullable = false, unique = true, length = 64)
+    private String chaveLogin;
+
+    @Column(name = "falhas_consecutivas", nullable = false)
+    private int falhasConsecutivas;
+
+    @Column(name = "janela_iniciada_em")
+    private Instant janelaIniciadaEm;
+
+    @Column(name = "bloqueada_ate")
+    private Instant bloqueadaAte;
+
+    protected ProtecaoAutenticacao() {
+    }
+
+    public ProtecaoAutenticacao(String chaveLogin) {
+        this.chaveLogin = validarChaveLogin(chaveLogin);
+        this.falhasConsecutivas = 0;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getChaveLogin() {
+        return chaveLogin;
+    }
+
+    public int getFalhasConsecutivas() {
+        return falhasConsecutivas;
+    }
+
+    public Instant getJanelaIniciadaEm() {
+        return janelaIniciadaEm;
+    }
+
+    public Instant getBloqueadaAte() {
+        return bloqueadaAte;
+    }
+
+    public boolean estaBloqueada(Instant agora) {
+        Objects.requireNonNull(agora, "Instante atual Ã© obrigatÃ³rio");
+        return bloqueadaAte != null && agora.isBefore(bloqueadaAte);
+    }
+
+    public boolean registrarFalha(
+            Instant agora,
+            int maximoTentativas,
+            Duration janela,
+            Duration duracaoBloqueio) {
+        Objects.requireNonNull(agora, "Instante atual Ã© obrigatÃ³rio");
+        if (maximoTentativas < 1) {
+            throw new IllegalArgumentException("MÃ¡ximo de falhas deve ser positivo");
+        }
+        if (janela == null || janela.isZero() || janela.isNegative()) {
+            throw new IllegalArgumentException("Janela de falhas deve ser positiva");
+        }
+        if (duracaoBloqueio == null || duracaoBloqueio.isZero() || duracaoBloqueio.isNegative()) {
+            throw new IllegalArgumentException("DuraÃ§Ã£o do bloqueio deve ser positiva");
+        }
+
+        if (janelaIniciadaEm == null || !agora.isBefore(janelaIniciadaEm.plus(janela))) {
+            falhasConsecutivas = 0;
+            janelaIniciadaEm = agora;
+        }
+
+        falhasConsecutivas++;
+        if (falhasConsecutivas >= maximoTentativas) {
+            bloqueadaAte = agora.plus(duracaoBloqueio);
+            return true;
+        }
+        return false;
+    }
+
+    public void registrarSucesso() {
+        falhasConsecutivas = 0;
+        janelaIniciadaEm = null;
+        bloqueadaAte = null;
+    }
+
+    private static String validarChaveLogin(String chaveLogin) {
+        if (chaveLogin == null || !chaveLogin.matches("^[0-9a-f]{64}$")) {
+            throw new IllegalArgumentException("Chave de login invÃ¡lida");
+        }
+        return chaveLogin;
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\SessaoRefreshToken.java ===
+package com.curso.biblioteca2026.model;
+
+import jakarta.persistence.*;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+
+@Entity
+@Table(name = "sessao_refresh_token")
+public class SessaoRefreshToken {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(
+            name = "conta_acesso_id",
+            nullable = false,
+            foreignKey = @ForeignKey(name = "fk_sessao_refresh_token_conta")
+    )
+    private ContaAcesso conta;
+
+    @Column(name = "familia_id", nullable = false, length = 36)
+    private String familiaId;
+
+    @Column(name = "token_hash", nullable = false, unique = true, length = 64)
+    private String tokenHash;
+
+    @Column(name = "criada_em", nullable = false)
+    private Instant criadaEm;
+
+    @Column(name = "ultima_atividade_em", nullable = false)
+    private Instant ultimaAtividadeEm;
+
+    @Column(name = "expira_em", nullable = false)
+    private Instant expiraEm;
+
+    @Column(name = "utilizada_em")
+    private Instant utilizadaEm;
+
+    @Column(name = "revogada_em")
+    private Instant revogadaEm;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "motivo_revogacao", length = 30)
+    private MotivoRevogacaoRefreshToken motivoRevogacao;
+
+    protected SessaoRefreshToken() {
+    }
+
+    public SessaoRefreshToken(
+            ContaAcesso conta,
+            String familiaId,
+            String tokenHash,
+            Instant criadaEm,
+            Instant expiraEm) {
+        this(conta, familiaId, tokenHash, criadaEm, criadaEm, expiraEm);
+    }
+
+    public SessaoRefreshToken(
+            ContaAcesso conta,
+            String familiaId,
+            String tokenHash,
+            Instant criadaEm,
+            Instant ultimaAtividadeEm,
+            Instant expiraEm) {
+        this.conta = Objects.requireNonNull(conta, "Conta de acesso Ã© obrigatÃ³ria");
+        this.familiaId = validarTextoObrigatorio(familiaId, "Identificador da famÃ­lia Ã© obrigatÃ³rio");
+        this.tokenHash = validarTextoObrigatorio(tokenHash, "Hash do token Ã© obrigatÃ³rio");
+        this.criadaEm = Objects.requireNonNull(criadaEm, "Instante de criaÃ§Ã£o Ã© obrigatÃ³rio");
+        this.ultimaAtividadeEm = Objects.requireNonNull(ultimaAtividadeEm, "Instante de atividade Ã© obrigatÃ³rio");
+        this.expiraEm = Objects.requireNonNull(expiraEm, "Instante de expiraÃ§Ã£o Ã© obrigatÃ³rio");
+        if (!this.expiraEm.isAfter(this.criadaEm)) {
+            throw new IllegalArgumentException("ExpiraÃ§Ã£o absoluta deve ser posterior Ã  criaÃ§Ã£o");
+        }
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public ContaAcesso getConta() {
+        return conta;
+    }
+
+    public String getFamiliaId() {
+        return familiaId;
+    }
+
+    public String getTokenHash() {
+        return tokenHash;
+    }
+
+    public Instant getCriadaEm() {
+        return criadaEm;
+    }
+
+    public Instant getUltimaAtividadeEm() {
+        return ultimaAtividadeEm;
+    }
+
+    public Instant getExpiraEm() {
+        return expiraEm;
+    }
+
+    public Instant getUtilizadaEm() {
+        return utilizadaEm;
+    }
+
+    public Instant getRevogadaEm() {
+        return revogadaEm;
+    }
+
+    public MotivoRevogacaoRefreshToken getMotivoRevogacao() {
+        return motivoRevogacao;
+    }
+
+    public boolean foiUtilizada() {
+        return utilizadaEm != null;
+    }
+
+    public boolean foiRevogada() {
+        return revogadaEm != null;
+    }
+
+    public boolean expirouPorInatividade(Instant agora, Duration idleTimeout) {
+        Objects.requireNonNull(agora, "Instante atual Ã© obrigatÃ³rio");
+        Objects.requireNonNull(idleTimeout, "Idle timeout Ã© obrigatÃ³rio");
+        Instant limite = ultimaAtividadeEm.plus(idleTimeout);
+        return !agora.isBefore(limite);
+    }
+
+    public boolean atingiuExpiracaoAbsoluta(Instant agora) {
+        Objects.requireNonNull(agora, "Instante atual Ã© obrigatÃ³rio");
+        return !agora.isBefore(expiraEm);
+    }
+
+    public boolean estaAtiva(Instant agora, Duration idleTimeout) {
+        return !foiUtilizada()
+                && !foiRevogada()
+                && !expirouPorInatividade(agora, idleTimeout)
+                && !atingiuExpiracaoAbsoluta(agora);
+    }
+
+    public void marcarUtilizada(Instant agora) {
+        Objects.requireNonNull(agora, "Instante de utilizaÃ§Ã£o Ã© obrigatÃ³rio");
+        if (foiRevogada()) {
+            throw new IllegalStateException("SessÃ£o revogada nÃ£o pode ser utilizada");
+        }
+        if (foiUtilizada()) {
+            throw new IllegalStateException("Refresh token jÃ¡ utilizado");
+        }
+        this.utilizadaEm = agora;
+        this.ultimaAtividadeEm = agora;
+    }
+
+    public void revogar(Instant agora, MotivoRevogacaoRefreshToken motivo) {
+        Objects.requireNonNull(agora, "Instante de revogaÃ§Ã£o Ã© obrigatÃ³rio");
+        Objects.requireNonNull(motivo, "Motivo de revogaÃ§Ã£o Ã© obrigatÃ³rio");
+        if (this.revogadaEm == null) {
+            this.revogadaEm = agora;
+            this.motivoRevogacao = motivo;
+        }
+    }
+
+    private static String validarTextoObrigatorio(String valor, String mensagem) {
+        if (valor == null || valor.isBlank()) {
+            throw new IllegalArgumentException(mensagem);
+        }
+        return valor.trim();
+    }
+
+    @Override
+    public String toString() {
+        return "SessaoRefreshToken{id=" + id
+                + ", familiaId='" + familiaId + '\''
+                + ", criadaEm=" + criadaEm
+                + ", utilizadaEm=" + utilizadaEm
+                + ", revogadaEm=" + revogadaEm
+                + ", motivoRevogacao=" + motivoRevogacao + '}';
+    }
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\Status.java ===
 package com.curso.biblioteca2026.model;
 
@@ -3079,6 +3893,24 @@ public enum StatusEmprestimo {
     ABERTO,
     FINALIZADO,
     CANCELADO
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\model\TipoEventoSeguranca.java ===
+package com.curso.biblioteca2026.model;
+
+public enum TipoEventoSeguranca {
+    LOGIN_SUCESSO,
+    LOGIN_FALHA,
+    LOGIN_RECUSADO_BLOQUEIO,
+    BLOQUEIO_TEMPORARIO_ATIVADO,
+    CONTA_CRIADA,
+    SENHA_ALTERADA,
+    PERFIS_ALTERADOS,
+    STATUS_ALTERADO,
+    REFRESH_SUCESSO,
+    REFRESH_FALHA,
+    LOGOUT,
+    LOGOUT_GLOBAL
 }
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\BibliotecarioRepository.java ===
@@ -3131,8 +3963,13 @@ public interface CategoriaLivroRepository
 package com.curso.biblioteca2026.repository;
 
 import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.PerfilAcesso;
+import com.curso.biblioteca2026.model.Status;
+import com.curso.biblioteca2026.model.StatusContaAcesso;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -3143,7 +3980,23 @@ public interface ContaAcessoRepository extends JpaRepository<ContaAcesso, Long> 
     boolean existsByPessoaId(Long pessoaId);
 
     @EntityGraph(attributePaths = {"pessoa", "perfis"})
+    Optional<ContaAcesso> findOneById(Long id);
+
+    @EntityGraph(attributePaths = {"pessoa", "perfis"})
     Optional<ContaAcesso> findByLoginIgnoreCase(String login);
+
+    @Query("""
+            select count(distinct c)
+            from ContaAcesso c
+            join c.perfis p
+            where c.status = :statusConta
+              and c.pessoa.status = :statusPessoa
+              and p = :perfil
+            """)
+    long countAtivasPorPerfil(
+            @Param("statusConta") StatusContaAcesso statusConta,
+            @Param("statusPessoa") Status statusPessoa,
+            @Param("perfil") PerfilAcesso perfil);
 }
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\EmprestimoRepository.java ===
@@ -3168,6 +4021,17 @@ public interface EmprestimoRepository extends JpaRepository<Emprestimo, Long>, J
     @Override
     @EntityGraph(attributePaths = {"leitor.pessoa", "bibliotecario.pessoa"})
     Page<Emprestimo> findAll(@Nullable Specification<Emprestimo> specification, Pageable pageable);
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\EventoSegurancaRepository.java ===
+package com.curso.biblioteca2026.repository;
+
+import com.curso.biblioteca2026.model.EventoSeguranca;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+
+public interface EventoSegurancaRepository
+        extends JpaRepository<EventoSeguranca, Long>, JpaSpecificationExecutor<EventoSeguranca> {
 }
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\ItemEmprestimoRepository.java ===
@@ -3254,6 +4118,99 @@ public interface PessoaRepository extends JpaRepository<Pessoa, Long>, JpaSpecif
     boolean existsByEmailIgnoreCaseAndIdNot(String email, Long id);
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\ProtecaoAutenticacaoRepository.java ===
+package com.curso.biblioteca2026.repository;
+
+import com.curso.biblioteca2026.model.ProtecaoAutenticacao;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+
+public interface ProtecaoAutenticacaoRepository extends JpaRepository<ProtecaoAutenticacao, Long> {
+
+    Optional<ProtecaoAutenticacao> findByChaveLogin(String chaveLogin);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select protecao
+            from ProtecaoAutenticacao protecao
+            where protecao.chaveLogin = :chaveLogin
+            """)
+    Optional<ProtecaoAutenticacao> buscarParaAtualizacao(@Param("chaveLogin") String chaveLogin);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO protecao_autenticacao (chave_login, falhas_consecutivas)
+            VALUES (:chaveLogin, 0)
+            ON CONFLICT (chave_login) DO NOTHING
+            """, nativeQuery = true)
+    void inserirSeAusente(@Param("chaveLogin") String chaveLogin);
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\repository\SessaoRefreshTokenRepository.java ===
+package com.curso.biblioteca2026.repository;
+
+import com.curso.biblioteca2026.model.MotivoRevogacaoRefreshToken;
+import com.curso.biblioteca2026.model.SessaoRefreshToken;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+public interface SessaoRefreshTokenRepository extends JpaRepository<SessaoRefreshToken, Long> {
+
+    Optional<SessaoRefreshToken> findByTokenHash(String tokenHash);
+
+    List<SessaoRefreshToken> findByFamiliaIdOrderByIdAsc(String familiaId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select sessao
+            from SessaoRefreshToken sessao
+            join fetch sessao.conta conta
+            join fetch conta.pessoa
+            where sessao.tokenHash = :tokenHash
+            """)
+    Optional<SessaoRefreshToken> buscarPorHashParaAtualizacao(@Param("tokenHash") String tokenHash);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update SessaoRefreshToken sessao
+            set sessao.revogadaEm = :agora,
+                sessao.motivoRevogacao = :motivo
+            where sessao.familiaId = :familiaId
+              and sessao.revogadaEm is null
+            """)
+    int revogarFamilia(
+            @Param("familiaId") String familiaId,
+            @Param("agora") Instant agora,
+            @Param("motivo") MotivoRevogacaoRefreshToken motivo);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update SessaoRefreshToken sessao
+            set sessao.revogadaEm = :agora,
+                sessao.motivoRevogacao = :motivo
+            where sessao.conta.id = :contaId
+              and sessao.revogadaEm is null
+            """)
+    int revogarTodasPorConta(
+            @Param("contaId") Long contaId,
+            @Param("agora") Instant agora,
+            @Param("motivo") MotivoRevogacaoRefreshToken motivo);
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\security\ContaAcessoUserDetailsService.java ===
 package com.curso.biblioteca2026.security;
 
@@ -3298,20 +4255,32 @@ public class ContaAcessoUserDetailsService implements UserDetailsService {
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\security\SecurityConfig.java ===
 package com.curso.biblioteca2026.security;
 
+import com.curso.biblioteca2026.config.AdministradorInicialProperties;
+import com.curso.biblioteca2026.config.ProtecaoAutenticacaoProperties;
+import com.curso.biblioteca2026.config.RefreshTokenProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
+@EnableMethodSecurity
+@EnableConfigurationProperties({
+        AdministradorInicialProperties.class,
+        RefreshTokenProperties.class,
+        ProtecaoAutenticacaoProperties.class
+})
 public class SecurityConfig {
 
     @Bean
@@ -3325,23 +4294,53 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
+        authoritiesConverter.setAuthoritiesClaimName("perfis");
+        authoritiesConverter.setAuthorityPrefix("ROLE_");
+
+        JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+        authenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+        return authenticationConverter;
+    }
+
+    @Bean
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtAuthenticationConverter jwtAuthenticationConverter) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/health", "/v3/api-docs/**",
-                                "/swagger-ui.html", "/swagger-ui/**")
+                        .requestMatchers(
+                                "/api/health",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml",
+                                "/swagger-ui.html",
+                                "/swagger-ui/**")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST,
-                                "/api/pessoas",
-                                "/api/contas-acesso",
-                                "/api/autenticacao/login")
+                                "/api/autenticacao/login",
+                                "/api/autenticacao/refresh",
+                                "/api/autenticacao/logout")
                         .permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers("/api/auditoria-seguranca/**")
+                        .hasRole("ADMINISTRADOR")
+                        .requestMatchers(HttpMethod.POST, "/api/contas-acesso")
+                        .hasRole("ADMINISTRADOR")
+                        .requestMatchers(
+                                "/api/contas-acesso/*/perfis",
+                                "/api/contas-acesso/*/status")
+                        .hasRole("ADMINISTRADOR")
+                        .requestMatchers(HttpMethod.DELETE, "/api/**")
+                        .hasRole("ADMINISTRADOR")
+                        .requestMatchers("/api/**")
+                        .hasAnyRole("OPERADOR", "ADMINISTRADOR")
+                        .anyRequest()
+                        .denyAll())
                 .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(Customizer.withDefaults()))
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .build();
     }
 }
@@ -3355,6 +4354,17 @@ public record TokenAcesso(
         String valor,
         Instant expiraEm,
         long duracaoSegundos) {
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\security\TokensAutenticacao.java ===
+package com.curso.biblioteca2026.security;
+
+import java.time.Instant;
+
+public record TokensAutenticacao(
+        TokenAcesso accessToken,
+        String refreshToken,
+        Instant refreshTokenExpiraEm) {
 }
 
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\security\TokenService.java ===
@@ -3387,6 +4397,10 @@ public class TokenService {
     }
 
     public TokenAcesso emitir(Authentication authentication) {
+        return emitir(authentication, UUID.randomUUID().toString());
+    }
+
+    public TokenAcesso emitir(Authentication authentication, String sessaoId) {
         Instant emitidoEm = clock.instant();
         Instant expiraEm = emitidoEm.plus(properties.expiration());
 
@@ -3397,20 +4411,179 @@ public class TokenService {
                 .sorted()
                 .toList();
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .issuedAt(emitidoEm)
                 .expiresAt(expiraEm)
                 .subject(authentication.getName())
                 .id(UUID.randomUUID().toString())
-                .claim("perfis", perfis)
-                .build();
+                .claim("perfis", perfis);
+
+        if (sessaoId != null && !sessaoId.isBlank()) {
+            claimsBuilder.claim("sid", sessaoId);
+        }
 
         String valor = encoder
-                .encode(JwtEncoderParameters.from(claims))
+                .encode(JwtEncoderParameters.from(claimsBuilder.build()))
                 .getTokenValue();
 
         return new TokenAcesso(valor, expiraEm, properties.expiration().toSeconds());
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\service\AdministradorInicialService.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.config.AdministradorInicialProperties;
+import com.curso.biblioteca2026.exception.RecursoDuplicadoException;
+import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.PerfilAcesso;
+import com.curso.biblioteca2026.model.Pessoa;
+import com.curso.biblioteca2026.model.Status;
+import com.curso.biblioteca2026.model.StatusContaAcesso;
+import com.curso.biblioteca2026.repository.ContaAcessoRepository;
+import com.curso.biblioteca2026.repository.PessoaRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.util.Optional;
+
+@Service
+public class AdministradorInicialService {
+
+    private final ContaAcessoRepository contaAcessoRepository;
+    private final PessoaRepository pessoaRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    public AdministradorInicialService(
+            ContaAcessoRepository contaAcessoRepository,
+            PessoaRepository pessoaRepository,
+            PasswordEncoder passwordEncoder) {
+        this.contaAcessoRepository = contaAcessoRepository;
+        this.pessoaRepository = pessoaRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Transactional
+    public Optional<ContaAcesso> criarSeNecessario(AdministradorInicialProperties properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Propriedades do administrador inicial n\u00e3o configuradas");
+        }
+        validarObrigatorio(properties.nome(), "Nome do administrador inicial \u00e9 obrigat\u00f3rio");
+        validarObrigatorio(properties.email(), "E-mail do administrador inicial \u00e9 obrigat\u00f3rio");
+        validarObrigatorio(properties.cpf(), "CPF do administrador inicial \u00e9 obrigat\u00f3rio");
+        String loginLimpo = validarObrigatorio(properties.login(), "Login do administrador inicial \u00e9 obrigat\u00f3rio");
+        ContaAcessoService.validarSenha(properties.senha());
+
+        long administradoresAtivos = contaAcessoRepository.countAtivasPorPerfil(
+                StatusContaAcesso.ATIVA,
+                Status.ATIVO,
+                PerfilAcesso.ADMINISTRADOR
+        );
+        if (administradoresAtivos > 0) {
+            return Optional.empty();
+        }
+
+        Pessoa pessoa = new Pessoa(properties.nome(), properties.email(), properties.cpf(), LocalDate.now());
+
+        if (pessoaRepository.existsByCpf(pessoa.getCpf())) {
+            throw new RecursoDuplicadoException("CPF jÃ¡ cadastrado para o administrador inicial");
+        }
+        if (pessoaRepository.existsByEmailIgnoreCase(pessoa.getEmail())) {
+            throw new RecursoDuplicadoException("E-mail jÃ¡ cadastrado para o administrador inicial");
+        }
+        if (contaAcessoRepository.existsByLoginIgnoreCase(loginLimpo)) {
+            throw new RecursoDuplicadoException("Login jÃ¡ cadastrado para o administrador inicial");
+        }
+
+        Pessoa pessoaSalva = pessoaRepository.save(pessoa);
+        String senhaHash = passwordEncoder.encode(properties.senha());
+        ContaAcesso conta = new ContaAcesso(pessoaSalva, loginLimpo, senhaHash);
+        conta.concederPerfil(PerfilAcesso.ADMINISTRADOR);
+
+        return Optional.of(contaAcessoRepository.save(conta));
+    }
+
+    private static String validarObrigatorio(String valor, String mensagem) {
+        if (valor == null || valor.isBlank()) {
+            throw new IllegalArgumentException(mensagem);
+        }
+        return valor.trim();
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\service\AuditoriaSegurancaService.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.model.EventoSeguranca;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
+import com.curso.biblioteca2026.repository.EventoSegurancaRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+
+@Service
+public class AuditoriaSegurancaService {
+
+    private static final Sort ORDENACAO_PADRAO = Sort.by(
+            Sort.Order.desc("ocorridoEm"),
+            Sort.Order.desc("id")
+    );
+
+    private final EventoSegurancaRepository repository;
+    private final Clock clock;
+
+    public AuditoriaSegurancaService(EventoSegurancaRepository repository, Clock clock) {
+        this.repository = repository;
+        this.clock = clock;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public EventoSeguranca registrar(
+            TipoEventoSeguranca tipo,
+            Long atorContaId,
+            Long alvoContaId,
+            String identificadorHash,
+            String enderecoOrigem) {
+        EventoSeguranca evento = new EventoSeguranca(
+                tipo,
+                clock.instant(),
+                atorContaId,
+                alvoContaId,
+                identificadorHash,
+                enderecoOrigem
+        );
+        return repository.save(evento);
+    }
+
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @Transactional(readOnly = true)
+    public Page<EventoSeguranca> consultar(TipoEventoSeguranca tipo, Pageable pageable) {
+        Specification<EventoSeguranca> spec = (root, query, cb) -> cb.conjunction();
+        if (tipo != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("tipo"), tipo));
+        }
+        return repository.findAll(spec, garantirOrdenacaoCronologicaDecrescente(pageable));
+    }
+
+    private Pageable garantirOrdenacaoCronologicaDecrescente(Pageable pageable) {
+        if (pageable == null || pageable.isUnpaged()) {
+            return PageRequest.of(0, 20, ORDENACAO_PADRAO);
+        }
+        Sort sort = pageable.getSort().isSorted()
+                ? pageable.getSort().and(Sort.by(Sort.Order.desc("id")))
+                : ORDENACAO_PADRAO;
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
     }
 }
 
@@ -3418,8 +4591,9 @@ public class TokenService {
 package com.curso.biblioteca2026.service;
 
 import com.curso.biblioteca2026.exception.CredenciaisInvalidasException;
-import com.curso.biblioteca2026.security.TokenAcesso;
-import com.curso.biblioteca2026.security.TokenService;
+import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.repository.ContaAcessoRepository;
+import com.curso.biblioteca2026.security.TokensAutenticacao;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -3430,19 +4604,41 @@ import org.springframework.stereotype.Service;
 public class AutenticacaoService {
 
     private final AuthenticationManager authenticationManager;
-    private final TokenService tokenService;
+    private final SessaoAutenticacaoService sessaoAutenticacaoService;
+    private final ProtecaoAutenticacaoService protecaoService;
+    private final ContaAcessoRepository contaAcessoRepository;
 
-    public AutenticacaoService(AuthenticationManager authenticationManager, TokenService tokenService) {
+    public AutenticacaoService(
+            AuthenticationManager authenticationManager,
+            SessaoAutenticacaoService sessaoAutenticacaoService,
+            ProtecaoAutenticacaoService protecaoService,
+            ContaAcessoRepository contaAcessoRepository) {
         this.authenticationManager = authenticationManager;
-        this.tokenService = tokenService;
+        this.sessaoAutenticacaoService = sessaoAutenticacaoService;
+        this.protecaoService = protecaoService;
+        this.contaAcessoRepository = contaAcessoRepository;
     }
 
-    public TokenAcesso autenticar(String login, String senha) {
+    public TokensAutenticacao autenticar(String login, String senha) {
+        return autenticar(login, senha, null);
+    }
+
+    public TokensAutenticacao autenticar(String login, String senha, String enderecoOrigem) {
+        if (!protecaoService.permitirTentativa(login, enderecoOrigem)) {
+            throw new CredenciaisInvalidasException("Login ou senha invÃ¡lidos");
+        }
+
         try {
             Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(login, senha));
-            return tokenService.emitir(authentication);
+            TokensAutenticacao tokens = sessaoAutenticacaoService.iniciar(authentication);
+            Long contaId = contaAcessoRepository.findByLoginIgnoreCase(authentication.getName())
+                    .map(ContaAcesso::getId)
+                    .orElse(null);
+            protecaoService.registrarSucesso(login, contaId, enderecoOrigem);
+            return tokens;
         } catch (AuthenticationException exception) {
+            protecaoService.registrarFalha(login, enderecoOrigem);
             throw new CredenciaisInvalidasException("Login ou senha invÃ¡lidos");
         }
     }
@@ -3665,15 +4861,23 @@ package com.curso.biblioteca2026.service;
 import com.curso.biblioteca2026.exception.RecursoDuplicadoException;
 import com.curso.biblioteca2026.exception.RecursoNaoEncontradoException;
 import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.PerfilAcesso;
 import com.curso.biblioteca2026.model.Pessoa;
 import com.curso.biblioteca2026.model.Status;
+import com.curso.biblioteca2026.model.StatusContaAcesso;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
 import com.curso.biblioteca2026.repository.ContaAcessoRepository;
 import com.curso.biblioteca2026.repository.PessoaRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -3685,14 +4889,22 @@ public class ContaAcessoService {
     private final ContaAcessoRepository repository;
     private final PessoaRepository pessoaRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditoriaSegurancaService auditoriaService;
 
     public ContaAcessoService(
             ContaAcessoRepository repository,
             PessoaRepository pessoaRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            AuditoriaSegurancaService auditoriaService) {
         this.repository = repository;
         this.pessoaRepository = pessoaRepository;
         this.passwordEncoder = passwordEncoder;
+        this.auditoriaService = auditoriaService;
+    }
+
+    public ContaAcesso buscarPorId(Long id) {
+        return repository.findOneById(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Conta de acesso nÃ£o encontrada: " + id));
     }
 
     public ContaAcesso buscarPorLogin(String login) {
@@ -3702,6 +4914,7 @@ public class ContaAcessoService {
     }
 
     @Transactional
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ContaAcesso cadastrar(Long pessoaId, String login, String senhaAberta) {
         Pessoa pessoa = pessoaRepository.findById(pessoaId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pessoa nÃ£o encontrada: " + pessoaId));
@@ -3721,7 +4934,89 @@ public class ContaAcessoService {
         validarSenha(senhaAberta);
         String senhaHash = passwordEncoder.encode(senhaAberta);
 
-        return repository.save(new ContaAcesso(pessoa, loginLimpo, senhaHash));
+        ContaAcesso contaSalva = repository.save(new ContaAcesso(pessoa, loginLimpo, senhaHash));
+        auditoriaService.registrar(
+                TipoEventoSeguranca.CONTA_CRIADA,
+                resolverAtorAutenticadoId(),
+                contaSalva.getId(),
+                null,
+                null
+        );
+        return contaSalva;
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ContaAcesso alterarPerfis(Long id, Set<PerfilAcesso> novosPerfis, String loginAutenticado) {
+        if (novosPerfis == null || novosPerfis.isEmpty() || novosPerfis.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("A conta deve possuir ao menos um perfil");
+        }
+
+        ContaAcesso conta = buscarPorId(id);
+        String loginAdmin = loginAutenticado != null ? loginAutenticado.trim() : "";
+        boolean removeAdministrador = !novosPerfis.contains(PerfilAcesso.ADMINISTRADOR);
+
+        if (conta.getLogin().equalsIgnoreCase(loginAdmin) && removeAdministrador) {
+            throw new IllegalArgumentException(
+                    "O administrador autenticado nÃ£o pode remover o prÃ³prio perfil de administrador");
+        }
+
+        boolean eraAdministradorAtivo = conta.podeAutenticar() && conta.possuiPerfil(PerfilAcesso.ADMINISTRADOR);
+        if (eraAdministradorAtivo && removeAdministrador && quantidadeAdministradoresAtivos() <= 1) {
+            throw new IllegalArgumentException("O sistema deve manter ao menos um administrador ativo");
+        }
+
+        conta.substituirPerfis(novosPerfis);
+        Long atorId = repository.findByLoginIgnoreCase(loginAdmin)
+                .map(ContaAcesso::getId)
+                .orElseGet(this::resolverAtorAutenticadoId);
+        auditoriaService.registrar(
+                TipoEventoSeguranca.PERFIS_ALTERADOS,
+                atorId,
+                conta.getId(),
+                null,
+                null
+        );
+        return conta;
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ContaAcesso alterarStatus(Long id, StatusContaAcesso novoStatus, String loginAutenticado) {
+        if (novoStatus == null) {
+            throw new IllegalArgumentException("Status Ã© obrigatÃ³rio");
+        }
+
+        ContaAcesso conta = buscarPorId(id);
+        String loginAdmin = loginAutenticado != null ? loginAutenticado.trim() : "";
+
+        if (novoStatus == StatusContaAcesso.BLOQUEADA && conta.getLogin().equalsIgnoreCase(loginAdmin)) {
+            throw new IllegalArgumentException("O administrador autenticado nÃ£o pode bloquear a prÃ³pria conta");
+        }
+
+        boolean eraAdministradorAtivo = conta.podeAutenticar() && conta.possuiPerfil(PerfilAcesso.ADMINISTRADOR);
+        if (novoStatus == StatusContaAcesso.BLOQUEADA
+                && eraAdministradorAtivo
+                && quantidadeAdministradoresAtivos() <= 1) {
+            throw new IllegalArgumentException("O sistema deve manter ao menos um administrador ativo");
+        }
+
+        if (novoStatus == StatusContaAcesso.ATIVA) {
+            conta.ativar();
+        } else {
+            conta.bloquear();
+        }
+        Long atorId = repository.findByLoginIgnoreCase(loginAdmin)
+                .map(ContaAcesso::getId)
+                .orElseGet(this::resolverAtorAutenticadoId);
+        auditoriaService.registrar(
+                TipoEventoSeguranca.STATUS_ALTERADO,
+                atorId,
+                conta.getId(),
+                null,
+                null
+        );
+        return conta;
     }
 
     @Transactional
@@ -3741,9 +5036,34 @@ public class ContaAcessoService {
         }
 
         conta.alterarSenha(passwordEncoder.encode(novaSenha));
+        auditoriaService.registrar(
+                TipoEventoSeguranca.SENHA_ALTERADA,
+                conta.getId(),
+                conta.getId(),
+                null,
+                null
+        );
     }
 
-    private void validarSenha(String senha) {
+    private Long resolverAtorAutenticadoId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || authentication.getName() == null) {
+            return null;
+        }
+        return repository.findByLoginIgnoreCase(authentication.getName().trim())
+                .map(ContaAcesso::getId)
+                .orElse(null);
+    }
+
+    private long quantidadeAdministradoresAtivos() {
+        return repository.countAtivasPorPerfil(
+                StatusContaAcesso.ATIVA,
+                Status.ATIVO,
+                PerfilAcesso.ADMINISTRADOR
+        );
+    }
+
+    static void validarSenha(String senha) {
         if (senha == null || senha.isBlank()) {
             throw new IllegalArgumentException("Senha Ã© obrigatÃ³ria");
         }
@@ -4279,6 +5599,382 @@ public class PessoaService {
     }
 }
 
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\service\ProtecaoAutenticacaoService.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.config.ProtecaoAutenticacaoProperties;
+import com.curso.biblioteca2026.model.ProtecaoAutenticacao;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
+import com.curso.biblioteca2026.repository.ProtecaoAutenticacaoRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.Locale;
+
+@Service
+public class ProtecaoAutenticacaoService {
+
+    private final ProtecaoAutenticacaoRepository repository;
+    private final AuditoriaSegurancaService auditoriaService;
+    private final ProtecaoAutenticacaoProperties properties;
+    private final Clock clock;
+
+    public ProtecaoAutenticacaoService(
+            ProtecaoAutenticacaoRepository repository,
+            AuditoriaSegurancaService auditoriaService,
+            ProtecaoAutenticacaoProperties properties,
+            Clock clock) {
+        this.repository = repository;
+        this.auditoriaService = auditoriaService;
+        this.properties = properties;
+        this.clock = clock;
+    }
+
+    @Transactional
+    public boolean permitirTentativa(String login, String enderecoOrigem) {
+        String chaveLogin = gerarChaveLogin(login);
+        Instant agora = clock.instant();
+        boolean bloqueada = repository.findByChaveLogin(chaveLogin)
+                .map(protecao -> protecao.estaBloqueada(agora))
+                .orElse(false);
+
+        if (bloqueada) {
+            auditoriaService.registrar(
+                    TipoEventoSeguranca.LOGIN_RECUSADO_BLOQUEIO,
+                    null,
+                    null,
+                    chaveLogin,
+                    enderecoOrigem
+            );
+            return false;
+        }
+        return true;
+    }
+
+    @Transactional
+    public void registrarFalha(String login, String enderecoOrigem) {
+        String chaveLogin = gerarChaveLogin(login);
+        Instant agora = clock.instant();
+
+        repository.inserirSeAusente(chaveLogin);
+        ProtecaoAutenticacao protecao = repository.buscarParaAtualizacao(chaveLogin)
+                .orElseThrow(() -> new IllegalStateException("Registro de proteÃ§Ã£o nÃ£o encontrado apÃ³s upsert"));
+
+        boolean ativouBloqueio = protecao.registrarFalha(
+                agora,
+                properties.maxFailedAttempts(),
+                properties.failureWindow(),
+                properties.lockDuration()
+        );
+
+        auditoriaService.registrar(
+                TipoEventoSeguranca.LOGIN_FALHA,
+                null,
+                null,
+                chaveLogin,
+                enderecoOrigem
+        );
+
+        if (ativouBloqueio) {
+            auditoriaService.registrar(
+                    TipoEventoSeguranca.BLOQUEIO_TEMPORARIO_ATIVADO,
+                    null,
+                    null,
+                    chaveLogin,
+                    enderecoOrigem
+            );
+        }
+    }
+
+    @Transactional
+    public void registrarSucesso(String login, Long contaId, String enderecoOrigem) {
+        String chaveLogin = gerarChaveLogin(login);
+        repository.buscarParaAtualizacao(chaveLogin)
+                .ifPresent(ProtecaoAutenticacao::registrarSucesso);
+
+        auditoriaService.registrar(
+                TipoEventoSeguranca.LOGIN_SUCESSO,
+                contaId,
+                contaId,
+                chaveLogin,
+                enderecoOrigem
+        );
+    }
+
+    public static String gerarChaveLogin(String login) {
+        String normalizado = login == null ? "" : login.trim().toLowerCase(Locale.ROOT);
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(normalizado.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Algoritmo SHA-256 indisponÃ­vel", exception);
+        }
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\service\SessaoAutenticacaoService.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.config.RefreshTokenProperties;
+import com.curso.biblioteca2026.exception.RecursoNaoEncontradoException;
+import com.curso.biblioteca2026.exception.RefreshTokenInvalidoException;
+import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.MotivoRevogacaoRefreshToken;
+import com.curso.biblioteca2026.model.SessaoRefreshToken;
+import com.curso.biblioteca2026.model.TipoEventoSeguranca;
+import com.curso.biblioteca2026.repository.ContaAcessoRepository;
+import com.curso.biblioteca2026.repository.SessaoRefreshTokenRepository;
+import com.curso.biblioteca2026.security.TokenAcesso;
+import com.curso.biblioteca2026.security.TokenService;
+import com.curso.biblioteca2026.security.TokensAutenticacao;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+public class SessaoAutenticacaoService {
+
+    private static final int TAMANHO_REFRESH_TOKEN_BYTES = 32;
+
+    private final SessaoRefreshTokenRepository sessaoRepository;
+    private final ContaAcessoRepository contaRepository;
+    private final TokenService tokenService;
+    private final RefreshTokenProperties properties;
+    private final Clock clock;
+    private final AuditoriaSegurancaService auditoriaService;
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    public SessaoAutenticacaoService(
+            SessaoRefreshTokenRepository sessaoRepository,
+            ContaAcessoRepository contaRepository,
+            TokenService tokenService,
+            RefreshTokenProperties properties,
+            Clock clock,
+            AuditoriaSegurancaService auditoriaService) {
+        this.sessaoRepository = sessaoRepository;
+        this.contaRepository = contaRepository;
+        this.tokenService = tokenService;
+        this.properties = properties;
+        this.clock = clock;
+        this.auditoriaService = auditoriaService;
+    }
+
+    @Transactional
+    public TokensAutenticacao iniciar(Authentication authentication) {
+        ContaAcesso conta = contaRepository
+                .findByLoginIgnoreCase(authentication.getName())
+                .orElseThrow(RefreshTokenInvalidoException::new);
+
+        if (!conta.podeAutenticar()) {
+            throw new RefreshTokenInvalidoException();
+        }
+
+        Instant agora = clock.instant();
+        String familiaId = UUID.randomUUID().toString();
+        Instant expiraEm = agora.plus(properties.absoluteExpiration());
+
+        return emitirPar(conta, authentication, familiaId, agora, expiraEm);
+    }
+
+    @Transactional(noRollbackFor = RefreshTokenInvalidoException.class)
+    public TokensAutenticacao renovar(String refreshToken) {
+        String hash;
+        try {
+            hash = calcularHash(refreshToken);
+        } catch (RefreshTokenInvalidoException exception) {
+            auditoriaService.registrar(TipoEventoSeguranca.REFRESH_FALHA, null, null, null, null);
+            throw exception;
+        }
+
+        Optional<SessaoRefreshToken> sessaoOpt = sessaoRepository.buscarPorHashParaAtualizacao(hash);
+        if (sessaoOpt.isEmpty()) {
+            auditoriaService.registrar(TipoEventoSeguranca.REFRESH_FALHA, null, null, null, null);
+            throw new RefreshTokenInvalidoException();
+        }
+
+        SessaoRefreshToken sessao = sessaoOpt.get();
+        Long contaId = sessao.getConta().getId();
+        Instant agora = clock.instant();
+
+        try {
+            validarSessaoParaRenovacao(sessao, agora);
+        } catch (RefreshTokenInvalidoException exception) {
+            auditoriaService.registrar(TipoEventoSeguranca.REFRESH_FALHA, contaId, contaId, null, null);
+            throw exception;
+        }
+
+        sessao.marcarUtilizada(agora);
+
+        Authentication authentication = criarAuthentication(sessao.getConta());
+        TokensAutenticacao tokens = emitirPar(
+                sessao.getConta(),
+                authentication,
+                sessao.getFamiliaId(),
+                agora,
+                sessao.getExpiraEm());
+
+        auditoriaService.registrar(TipoEventoSeguranca.REFRESH_SUCESSO, contaId, contaId, null, null);
+        return tokens;
+    }
+
+    @Transactional
+    public void encerrar(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+        String hash = calcularHash(refreshToken);
+        sessaoRepository.buscarPorHashParaAtualizacao(hash)
+                .ifPresent(sessao -> {
+                    Instant agora = clock.instant();
+                    sessaoRepository.revogarFamilia(
+                            sessao.getFamiliaId(),
+                            agora,
+                            MotivoRevogacaoRefreshToken.LOGOUT);
+                    Long contaId = sessao.getConta().getId();
+                    auditoriaService.registrar(
+                            TipoEventoSeguranca.LOGOUT,
+                            contaId,
+                            contaId,
+                            null,
+                            null
+                    );
+                });
+    }
+
+    @Transactional
+    public void encerrarTodas(String login) {
+        String loginLimpo = login != null ? login.trim() : "";
+        ContaAcesso conta = contaRepository.findByLoginIgnoreCase(loginLimpo)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Conta de acesso nÃ£o encontrada"));
+
+        Instant agora = clock.instant();
+        sessaoRepository.revogarTodasPorConta(
+                conta.getId(),
+                agora,
+                MotivoRevogacaoRefreshToken.LOGOUT_GLOBAL);
+        auditoriaService.registrar(
+                TipoEventoSeguranca.LOGOUT_GLOBAL,
+                conta.getId(),
+                conta.getId(),
+                null,
+                null
+        );
+    }
+
+    public static String gerarHashSha256(String valor) {
+        if (valor == null || valor.isBlank()) {
+            throw new RefreshTokenInvalidoException();
+        }
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(valor.trim().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Algoritmo SHA-256 indisponÃ­vel", exception);
+        }
+    }
+
+    private void validarSessaoParaRenovacao(SessaoRefreshToken sessao, Instant agora) {
+        if (sessao.foiRevogada()) {
+            throw new RefreshTokenInvalidoException();
+        }
+        if (sessao.foiUtilizada()) {
+            sessaoRepository.revogarFamilia(
+                    sessao.getFamiliaId(),
+                    agora,
+                    MotivoRevogacaoRefreshToken.REUTILIZACAO);
+            throw new RefreshTokenInvalidoException();
+        }
+        if (sessao.atingiuExpiracaoAbsoluta(agora)) {
+            sessaoRepository.revogarFamilia(
+                    sessao.getFamiliaId(),
+                    agora,
+                    MotivoRevogacaoRefreshToken.EXPIRACAO_ABSOLUTA);
+            throw new RefreshTokenInvalidoException();
+        }
+        if (sessao.expirouPorInatividade(agora, properties.idleTimeout())) {
+            sessaoRepository.revogarFamilia(
+                    sessao.getFamiliaId(),
+                    agora,
+                    MotivoRevogacaoRefreshToken.INATIVIDADE);
+            throw new RefreshTokenInvalidoException();
+        }
+        if (!sessao.getConta().podeAutenticar()) {
+            sessaoRepository.revogarFamilia(
+                    sessao.getFamiliaId(),
+                    agora,
+                    MotivoRevogacaoRefreshToken.CONTA_INATIVA);
+            throw new RefreshTokenInvalidoException();
+        }
+    }
+
+    private TokensAutenticacao emitirPar(
+            ContaAcesso conta,
+            Authentication authentication,
+            String familiaId,
+            Instant agora,
+            Instant expiraEm) {
+        String refreshToken = gerarRefreshToken();
+        String tokenHash = calcularHash(refreshToken);
+
+        SessaoRefreshToken sessao = new SessaoRefreshToken(
+                conta,
+                familiaId,
+                tokenHash,
+                agora,
+                agora,
+                expiraEm);
+        sessaoRepository.save(sessao);
+
+        TokenAcesso accessToken = tokenService.emitir(authentication, familiaId);
+        return new TokensAutenticacao(accessToken, refreshToken, expiraEm);
+    }
+
+    private Authentication criarAuthentication(ContaAcesso conta) {
+        List<SimpleGrantedAuthority> autoridades = conta.getPerfis().stream()
+                .map(perfil -> new SimpleGrantedAuthority("ROLE_" + perfil.name()))
+                .toList();
+
+        return UsernamePasswordAuthenticationToken.authenticated(
+                conta.getLogin(),
+                null,
+                autoridades);
+    }
+
+    private String gerarRefreshToken() {
+        byte[] bytes = new byte[TAMANHO_REFRESH_TOKEN_BYTES];
+        secureRandom.nextBytes(bytes);
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(bytes);
+    }
+
+    private String calcularHash(String refreshToken) {
+        return gerarHashSha256(refreshToken);
+    }
+}
+
 // === ARQUIVO: C:\Projetos\biblioteca2026\src\main\java\com\curso\biblioteca2026\validation\CnpjValidator.java ===
 package com.curso.biblioteca2026.validation;
 
@@ -4349,13 +6045,384 @@ public @interface CpfValido {
     Class<? extends Payload>[] payload() default {};
 }
 
-// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\api\ContaAcessoSecurityTest.java ===
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\api\CicloTokenApiTest.java ===
 package com.curso.biblioteca2026.api;
 
 import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.MotivoRevogacaoRefreshToken;
+import com.curso.biblioteca2026.model.PerfilAcesso;
 import com.curso.biblioteca2026.model.Pessoa;
-import com.curso.biblioteca2026.repository.ContaAcessoRepository;
-import com.curso.biblioteca2026.repository.PessoaRepository;
+import com.curso.biblioteca2026.model.SessaoRefreshToken;
+import com.curso.biblioteca2026.repository.SessaoRefreshTokenRepository;
+import com.curso.biblioteca2026.service.ContaAcessoService;
+import com.curso.biblioteca2026.service.PessoaService;
+import com.curso.biblioteca2026.service.SessaoAutenticacaoService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.json.JsonParserFactory;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class CicloTokenApiTest {
+
+    private static final String SENHA_ADMIN = "senha-admin-ciclo-2026";
+    private static final String SENHA_OPERADOR = "senha-operador-ciclo-2026";
+    private static final AtomicInteger SEQUENCIA_CPF = new AtomicInteger(800_000_000);
+
+    private final ConcurrentLinkedQueue<Long> pessoasCriadas = new ConcurrentLinkedQueue<>();
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private PessoaService pessoaService;
+
+    @Autowired
+    private ContaAcessoService contaAcessoService;
+
+    @Autowired
+    private SessaoRefreshTokenRepository sessaoRepository;
+
+    @Autowired
+    private JwtDecoder jwtDecoder;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void limparDadosCriados() {
+        SecurityContextHolder.clearContext();
+        Long pessoaId;
+        while ((pessoaId = pessoasCriadas.poll()) != null) {
+            jdbcTemplate.update(
+                    "delete from sessao_refresh_token where conta_acesso_id in (select id from conta_acesso where pessoa_id = ?)",
+                    pessoaId);
+            jdbcTemplate.update(
+                    "delete from conta_acesso_perfil where conta_acesso_id in (select id from conta_acesso where pessoa_id = ?)",
+                    pessoaId);
+            jdbcTemplate.update("delete from conta_acesso where pessoa_id = ?", pessoaId);
+            jdbcTemplate.update("delete from pessoa where id = ?", pessoaId);
+        }
+        jdbcTemplate.update("delete from sessao_refresh_token where conta_acesso_id in (select id from conta_acesso where login like 'admin.ciclo.%')");
+        jdbcTemplate.update("delete from conta_acesso_perfil where conta_acesso_id in (select id from conta_acesso where login like 'admin.ciclo.%')");
+        jdbcTemplate.update("delete from conta_acesso where login like 'admin.ciclo.%'");
+        jdbcTemplate.update("delete from pessoa where nome = 'Admin Ciclo'");
+    }
+
+    @Test
+    void deveEmitirParDeTokensNoLoginComClaimSidENaoPersistirSegredoPuro() throws Exception {
+        String login = criarOperadorUnico("emissao");
+        TokensHttp tokens = autenticar(login, SENHA_OPERADOR);
+
+        assertNotNull(tokens.accessToken());
+        assertNotNull(tokens.refreshToken());
+        assertNotNull(tokens.refreshTokenExpiresAt());
+
+        Jwt jwt = jwtDecoder.decode(tokens.accessToken());
+        String sid = jwt.getClaimAsString("sid");
+        assertNotNull(sid);
+        assertFalse(sid.isBlank());
+
+        assertTrue(sessaoRepository.findByTokenHash(tokens.refreshToken()).isEmpty());
+
+        String hashEsperado = SessaoAutenticacaoService.gerarHashSha256(tokens.refreshToken());
+        SessaoRefreshToken sessaoSalva = sessaoRepository.findByTokenHash(hashEsperado).orElseThrow();
+        assertEquals(sid, sessaoSalva.getFamiliaId());
+        assertNull(sessaoSalva.getUtilizadaEm());
+        assertNull(sessaoSalva.getRevogadaEm());
+    }
+
+    @Test
+    void deveRotacionarRefreshTokenERevogarTodaAFamiliaEmCasoDeReutilizacao() throws Exception {
+        String login = criarOperadorUnico("rotacao");
+        TokensHttp primeiroPar = autenticar(login, SENHA_OPERADOR);
+        TokensHttp segundoPar = renovar(primeiroPar.refreshToken());
+
+        assertNotEquals(primeiroPar.refreshToken(), segundoPar.refreshToken());
+
+        renovarEsperandoNaoAutorizado(primeiroPar.refreshToken());
+        renovarEsperandoNaoAutorizado(segundoPar.refreshToken());
+
+        Jwt jwt = jwtDecoder.decode(primeiroPar.accessToken());
+        String familiaId = jwt.getClaimAsString("sid");
+        List<SessaoRefreshToken> familia = sessaoRepository.findByFamiliaIdOrderByIdAsc(familiaId);
+        assertEquals(2, familia.size());
+        assertTrue(familia.stream().allMatch(SessaoRefreshToken::foiRevogada));
+        assertTrue(familia.stream()
+                .allMatch(s -> s.getMotivoRevogacao() == MotivoRevogacaoRefreshToken.REUTILIZACAO));
+    }
+
+    @Test
+    void deveEncerrarSessaoNoLogoutLocalEManterAccessTokenValidoAteExpirar() throws Exception {
+        String login = criarOperadorUnico("logout.local");
+        TokensHttp tokens = autenticar(login, SENHA_OPERADOR);
+
+        logout(tokens.refreshToken());
+        renovarEsperandoNaoAutorizado(tokens.refreshToken());
+
+        mockMvc.perform(get("/api/contas-acesso/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.login").value(login));
+    }
+
+    @Test
+    void deveEncerrarTodasAsSessoesNoLogoutGlobal() throws Exception {
+        String login = criarOperadorUnico("logout.global");
+        TokensHttp sessao1 = autenticar(login, SENHA_OPERADOR);
+        TokensHttp sessao2 = autenticar(login, SENHA_OPERADOR);
+
+        mockMvc.perform(post("/api/autenticacao/logout-todos")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessao1.accessToken()))
+                .andExpect(status().isNoContent());
+
+        renovarEsperandoNaoAutorizado(sessao1.refreshToken());
+        renovarEsperandoNaoAutorizado(sessao2.refreshToken());
+    }
+
+    @Test
+    void deveBloquearRenovacaoQuandoContaForBloqueadaAposLoginComMotivoContaInativa() throws Exception {
+        String tokenAdmin = criarAdminUnicoEToken();
+        String login = criarOperadorUnico("bloqueio");
+        ContaAcesso conta = contaAcessoService.buscarPorLogin(login);
+
+        TokensHttp tokens = autenticar(login, SENHA_OPERADOR);
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", conta.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        renovarEsperandoNaoAutorizado(tokens.refreshToken());
+
+        String hash = SessaoAutenticacaoService.gerarHashSha256(tokens.refreshToken());
+        SessaoRefreshToken sessao = sessaoRepository.findByTokenHash(hash).orElseThrow();
+        assertTrue(sessao.foiRevogada());
+        assertEquals(MotivoRevogacaoRefreshToken.CONTA_INATIVA, sessao.getMotivoRevogacao());
+
+        mockMvc.perform(get("/api/contas-acesso/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void deveImpedirDoisUsosConcorrentesDoMesmoRefreshToken() throws Exception {
+        String login = criarOperadorUnico("concorrencia");
+        TokensHttp tokens = autenticar(login, SENHA_OPERADOR);
+
+        CountDownLatch inicioSimultaneo = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Integer> tentativa1 = executor.submit(() -> tentarRenovarConcorrente(tokens.refreshToken(), inicioSimultaneo));
+            Future<Integer> tentativa2 = executor.submit(() -> tentarRenovarConcorrente(tokens.refreshToken(), inicioSimultaneo));
+
+            inicioSimultaneo.countDown();
+
+            List<Integer> statusCodes = List.of(
+                    tentativa1.get(10, TimeUnit.SECONDS),
+                    tentativa2.get(10, TimeUnit.SECONDS));
+
+            assertEquals(1, statusCodes.stream().filter(code -> code == 200).count());
+            assertEquals(1, statusCodes.stream().filter(code -> code == 401).count());
+        }
+    }
+
+    private int tentarRenovarConcorrente(String refreshToken, CountDownLatch inicioSimultaneo) throws Exception {
+        inicioSimultaneo.await();
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(refreshToken)))
+                .andReturn();
+        return result.getResponse().getStatus();
+    }
+
+    private String criarOperadorUnico(String prefixo) {
+        autenticarContextoAdmin();
+        try {
+            Pessoa pessoa = pessoaService.cadastrar(
+                    "Operador " + prefixo,
+                    prefixo + "." + System.nanoTime() + "@example.com",
+                    gerarCpfUnico());
+            pessoasCriadas.add(pessoa.getId());
+            String login = prefixo + "." + System.nanoTime();
+            contaAcessoService.cadastrar(pessoa.getId(), login, SENHA_OPERADOR);
+            return login;
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private String criarAdminUnicoEToken() throws Exception {
+        String loginAdmin = "admin.ciclo." + System.nanoTime();
+        autenticarContextoAdmin();
+        try {
+            Pessoa pessoa = pessoaService.cadastrar(
+                    "Admin Ciclo",
+                    loginAdmin + "@example.com",
+                    gerarCpfUnico());
+            pessoasCriadas.add(pessoa.getId());
+            ContaAcesso conta = contaAcessoService.cadastrar(pessoa.getId(), loginAdmin, SENHA_ADMIN);
+            contaAcessoService.alterarPerfis(
+                    conta.getId(),
+                    Set.of(PerfilAcesso.OPERADOR, PerfilAcesso.ADMINISTRADOR),
+                    "sistema.bootstrap");
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+        return autenticar(loginAdmin, SENHA_ADMIN).accessToken();
+    }
+
+    private static void autenticarContextoAdmin() {
+        var auth = UsernamePasswordAuthenticationToken.authenticated(
+                "sistema.bootstrap",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_ADMINISTRADOR"))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+    }
+
+    private TokensHttp autenticar(String login, String senha) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(login, senha)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+
+        Map<String, Object> body = JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString());
+        return new TokensHttp(
+                body.get("accessToken").toString(),
+                body.get("refreshToken").toString(),
+                body.get("refreshTokenExpiresAt").toString()
+        );
+    }
+
+    private TokensHttp renovar(String refreshToken) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(refreshToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+
+        Map<String, Object> body = JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString());
+        return new TokensHttp(
+                body.get("accessToken").toString(),
+                body.get("refreshToken").toString(),
+                body.get("refreshTokenExpiresAt").toString()
+        );
+    }
+
+    private void renovarEsperandoNaoAutorizado(String refreshToken) throws Exception {
+        mockMvc.perform(post("/api/autenticacao/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(refreshToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Refresh token invÃ¡lido ou expirado"));
+    }
+
+    private void logout(String refreshToken) throws Exception {
+        mockMvc.perform(post("/api/autenticacao/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(refreshToken)))
+                .andExpect(status().isNoContent());
+    }
+
+    private static String gerarCpfUnico() {
+        long semente = Math.abs(System.nanoTime() + SEQUENCIA_CPF.incrementAndGet()) % 899_999_999L + 100_000_000L;
+        String base = String.format("%09d", semente);
+        final char primeiroDigito = base.charAt(0);
+        if (base.chars().allMatch(c -> c == primeiroDigito)) {
+            base = "123456789";
+        }
+        int d1 = calcularDigitoCpf(base, 10);
+        int d2 = calcularDigitoCpf(base + d1, 11);
+        return base + d1 + d2;
+    }
+
+    private static int calcularDigitoCpf(String base, int pesoInicial) {
+        int soma = 0;
+        for (int i = 0; i < base.length(); i++) {
+            soma += Character.getNumericValue(base.charAt(i)) * (pesoInicial - i);
+        }
+        int resto = soma % 11;
+        return resto < 2 ? 0 : 11 - resto;
+    }
+
+    private record TokensHttp(String accessToken, String refreshToken, String refreshTokenExpiresAt) {
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\api\ContaAcessoSecurityTest.java ===
+package com.curso.biblioteca2026.api;
+
+import com.curso.biblioteca2026.config.AdministradorInicialProperties;
+import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.service.AdministradorInicialService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.json.JsonParserFactory;
@@ -4376,8 +6443,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -4389,6 +6458,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class ContaAcessoSecurityTest {
 
+    private static final String SENHA_ADMIN = "senha-admin-segura-2026";
     private static final String SENHA_INICIAL = "uma-frase-senha-2026";
     private static final String NOVA_SENHA = "outra-frase-senha-2026";
     private static final AtomicInteger SEQUENCIA_CPF = new AtomicInteger(500_000_000);
@@ -4397,21 +6467,40 @@ class ContaAcessoSecurityTest {
     private MockMvc mockMvc;
 
     @Autowired
-    private PessoaRepository pessoaRepository;
-
-    @Autowired
-    private ContaAcessoRepository contaAcessoRepository;
+    private AdministradorInicialService administradorInicialService;
 
     @Autowired
     private JwtDecoder jwtDecoder;
 
     @Test
-    void devePermitirHealthPublicoERejeitarRotaProtegidaSemBearerValido() throws Exception {
+    void devePermitirHealthPublicoERejeitarRotasProtegidasSemBearerValido() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("OK"));
 
         mockMvc.perform(get("/api/livros"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/pessoas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nome": "Sem Token",
+                                  "email": "semtoken@example.com",
+                                  "cpf": "%s"
+                                }
+                                """.formatted(gerarCpfUnico())))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/contas-acesso")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "pessoaId": 1,
+                                  "login": "semtoken",
+                                  "senha": "%s"
+                                }
+                                """.formatted(SENHA_INICIAL)))
                 .andExpect(status().isUnauthorized());
 
         String basicHeader = "Basic " + Base64.getEncoder()
@@ -4426,48 +6515,43 @@ class ContaAcessoSecurityTest {
     }
 
     @Test
-    void deveEmitirJwtValidarClaimsAutenticarComBearerEBloquearNovosLogins() throws Exception {
-        String cpf = gerarCpfUnico();
-        String email = "operadora." + System.nanoTime() + "@example.com";
-        String login = "operadora." + System.nanoTime();
+    void deveAplicarAutorizacaoPorPerfisInvariantesAdministrativasETrocaDeSenha() throws Exception {
+        String adminLogin = "admin." + System.nanoTime();
+        ContaAcesso adminConta = criarAdministradorInicial(adminLogin);
+        String tokenAdmin = autenticar(adminLogin, SENHA_ADMIN);
 
-        String pessoaJson = """
-                {
-                  "nome": "Operadora Biblioteca",
-                  "email": "%s",
-                  "cpf": "%s"
-                }
-                """.formatted(email, cpf);
+        Jwt jwtAdmin = jwtDecoder.decode(tokenAdmin);
+        assertEquals("https://biblioteca2026.local", jwtAdmin.getIssuer().toString());
+        assertEquals(adminLogin, jwtAdmin.getSubject());
+        assertTrue(jwtAdmin.getClaimAsStringList("perfis").contains("ADMINISTRADOR"));
 
-        mockMvc.perform(post("/api/pessoas")
+        // Administrador cadastra pessoa e conta OPERADOR
+        Long pessoaOperadoraId = cadastrarPessoa(tokenAdmin, "Operadora Biblioteca");
+        String loginOperadora = "operadora." + System.nanoTime();
+
+        MvcResult contaResult = mockMvc.perform(post("/api/contas-acesso")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(pessoaJson))
+                        .content("""
+                                {
+                                  "pessoaId": %d,
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(pessoaOperadoraId, loginOperadora, SENHA_INICIAL)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.cpf").value(cpf));
-
-        Pessoa pessoa = pessoaRepository.findAll().stream()
-                .filter(p -> cpf.equals(p.getCpf()))
-                .findFirst()
-                .orElseThrow();
-
-        String contaJson = """
-                {
-                  "pessoaId": %d,
-                  "login": "%s",
-                  "senha": "%s"
-                }
-                """.formatted(pessoa.getId(), login, SENHA_INICIAL);
-
-        mockMvc.perform(post("/api/contas-acesso")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(contaJson))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.login").value(login))
+                .andExpect(jsonPath("$.login").value(loginOperadora))
                 .andExpect(jsonPath("$.status").value("ATIVA"))
                 .andExpect(jsonPath("$.perfis[0]").value("OPERADOR"))
                 .andExpect(content().string(not(containsString(SENHA_INICIAL))))
-                .andExpect(content().string(not(containsString("{bcrypt}"))));
+                .andExpect(content().string(not(containsString("{bcrypt}"))))
+                .andReturn();
 
+        Long contaOperadoraId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(contaResult.getResponse().getContentAsString())
+                .get("id")).longValue();
+
+        // Login com senha incorreta retorna 401
         mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -4475,48 +6559,128 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "senha-incorreta-2026"
                                 }
-                                """.formatted(login)))
+                                """.formatted(loginOperadora)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.message").value("Login ou senha invÃ¡lidos"));
 
-        String token = autenticar(login, SENHA_INICIAL);
-        assertFalse(token.contains(SENHA_INICIAL));
+        String tokenOperadora = autenticar(loginOperadora, SENHA_INICIAL);
 
-        Jwt jwt = jwtDecoder.decode(token);
-        assertEquals("https://biblioteca2026.local", jwt.getIssuer().toString());
-        assertEquals(login, jwt.getSubject());
-        assertNotNull(jwt.getId());
-        assertNotNull(jwt.getIssuedAt());
-        assertNotNull(jwt.getExpiresAt());
-        assertTrue(jwt.getExpiresAt().isAfter(jwt.getIssuedAt()));
-        assertTrue(jwt.getClaimAsStringList("perfis").contains("OPERADOR"));
-
-        String tokenAdulterado = token.substring(0, token.length() - 2) + "xx";
+        // OPERADOR executa operacoes cotidianas (200 / 201)
         mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdulterado))
-                .andExpect(status().isUnauthorized());
-
-        mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.login").value(login));
+                .andExpect(jsonPath("$.login").value(loginOperadora));
 
         mockMvc.perform(get("/api/livros")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
                 .andExpect(status().isOk());
 
-        String trocaSenhaJson = """
-                {
-                  "senhaAtual": "%s",
-                  "novaSenha": "%s"
-                }
-                """.formatted(SENHA_INICIAL, NOVA_SENHA);
-
-        mockMvc.perform(put("/api/contas-acesso/me/senha")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        MvcResult categoriaResult = mockMvc.perform(post("/api/categorias")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(trocaSenhaJson))
+                        .content("""
+                                {
+                                  "nome": "Categoria Teste %d"
+                                }
+                                """.formatted(System.nanoTime())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long categoriaId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(categoriaResult.getResponse().getContentAsString())
+                .get("id")).longValue();
+
+        // OPERADOR recebe 403 em rotas administrativas e exclusoes
+        Long outraPessoaId = cadastrarPessoa(tokenOperadora, "Terceira Pessoa");
+        mockMvc.perform(post("/api/contas-acesso")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "pessoaId": %d,
+                                  "login": "nao.autorizado.%d",
+                                  "senha": "%s"
+                                }
+                                """.formatted(outraPessoaId, System.nanoTime(), SENHA_INICIAL)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR", "ADMINISTRADOR"]
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
+                .andExpect(status().isForbidden());
+
+        // ADMINISTRADOR nao pode bloquear nem remover perfil admin de si mesmo (400)
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", adminConta.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", adminConta.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR"]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // ADMINISTRADOR promove operadora; token antigo continua sem privilegio ate novo login
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR", "ADMINISTRADOR"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.perfis", hasItems("OPERADOR", "ADMINISTRADOR")));
+
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadora))
+                .andExpect(status().isForbidden());
+
+        String tokenOperadoraPromovida = autenticar(loginOperadora, SENHA_INICIAL);
+        mockMvc.perform(delete("/api/categorias/{id}", categoriaId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadoraPromovida))
+                .andExpect(status().isNoContent());
+
+        // Troca de senha da propria conta autenticada
+        mockMvc.perform(put("/api/contas-acesso/me/senha")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenOperadoraPromovida)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "senhaAtual": "%s",
+                                  "novaSenha": "%s"
+                                }
+                                """.formatted(SENHA_INICIAL, NOVA_SENHA)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/api/autenticacao/login")
@@ -4526,17 +6690,25 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "%s"
                                 }
-                                """.formatted(login, SENHA_INICIAL)))
+                                """.formatted(loginOperadora, SENHA_INICIAL)))
                 .andExpect(status().isUnauthorized());
 
-        String novoToken = autenticar(login, NOVA_SENHA);
+        String tokenAposTrocaSenha = autenticar(loginOperadora, NOVA_SENHA);
         mockMvc.perform(get("/api/contas-acesso/me")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + novoToken))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAposTrocaSenha))
                 .andExpect(status().isOk());
 
-        ContaAcesso conta = contaAcessoRepository.findByLoginIgnoreCase(login).orElseThrow();
-        conta.bloquear();
-        contaAcessoRepository.saveAndFlush(conta);
+        // ADMINISTRADOR bloqueia outra conta (200) e novos logins da conta bloqueada falham (401)
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", contaOperadoraId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("BLOQUEADA"));
 
         mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -4545,24 +6717,52 @@ class ContaAcessoSecurityTest {
                                   "login": "%s",
                                   "senha": "%s"
                                 }
-                                """.formatted(login, NOVA_SENHA)))
+                                """.formatted(loginOperadora, NOVA_SENHA)))
                 .andExpect(status().isUnauthorized());
     }
 
-    private String autenticar(String login, String senha) throws Exception {
-        String loginJson = """
-                {
-                  "login": "%s",
-                  "senha": "%s"
-                }
-                """.formatted(login, senha);
+    private ContaAcesso criarAdministradorInicial(String login) {
+        AdministradorInicialProperties props = new AdministradorInicialProperties(
+                true,
+                "Administrador Teste",
+                "admin." + System.nanoTime() + "@example.com",
+                gerarCpfUnico(),
+                login,
+                SENHA_ADMIN
+        );
+        return administradorInicialService.criarSeNecessario(props).orElseThrow();
+    }
 
+    private Long cadastrarPessoa(String bearerToken, String nome) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/pessoas")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nome": "%s",
+                                  "email": "pessoa.%d@example.com",
+                                  "cpf": "%s"
+                                }
+                                """.formatted(nome, System.nanoTime(), gerarCpfUnico())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        return ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString())
+                .get("id")).longValue();
+    }
+
+    private String autenticar(String login, String senha) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/autenticacao/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(loginJson))
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(login, senha)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(1800))
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andReturn();
 
@@ -4641,14 +6841,635 @@ class OpenApiDocumentationTest {
                 .andExpect(jsonPath("$.paths['/api/emprestimos/{id}/itens'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/emprestimos/{id}/finalizacao'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/contas-acesso'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/contas-acesso/{id}/perfis'].put").exists())
+                .andExpect(jsonPath("$.paths['/api/contas-acesso/{id}/status'].put").exists())
                 .andExpect(jsonPath("$.paths['/api/contas-acesso/me'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/contas-acesso/me/senha'].put").exists())
                 .andExpect(jsonPath("$.paths['/api/autenticacao/login'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/refresh'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/logout'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/autenticacao/logout-todos'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/auditoria-seguranca'].get").exists())
                 .andExpect(jsonPath("$.components.schemas.LivroResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.EmprestimoResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ContaAcessoResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.PerfisContaAcessoRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.StatusContaAcessoRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.RefreshTokenRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.TokenResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.EventoSegurancaResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ApiError").exists());
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\api\ProtecaoAutenticacaoApiTest.java ===
+package com.curso.biblioteca2026.api;
+
+import com.curso.biblioteca2026.model.*;
+import com.curso.biblioteca2026.repository.EventoSegurancaRepository;
+import com.curso.biblioteca2026.repository.ProtecaoAutenticacaoRepository;
+import com.curso.biblioteca2026.service.ContaAcessoService;
+import com.curso.biblioteca2026.service.PessoaService;
+import com.curso.biblioteca2026.service.ProtecaoAutenticacaoService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.json.JsonParserFactory;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class ProtecaoAutenticacaoApiTest {
+
+    private static final String SENHA_ADMIN = "senha-admin-auditoria-2026";
+    private static final String SENHA_CORRETA = "senha-operador-auditoria-2026";
+    private static final String NOVA_SENHA = "nova-senha-auditoria-2026";
+    private static final AtomicInteger SEQUENCIA_CPF = new AtomicInteger(900_000_000);
+
+    private final ConcurrentLinkedQueue<Long> pessoasCriadas = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<String> chavesCriadas = new ConcurrentLinkedQueue<>();
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private PessoaService pessoaService;
+
+    @Autowired
+    private ContaAcessoService contaAcessoService;
+
+    @Autowired
+    private ProtecaoAutenticacaoRepository protecaoRepository;
+
+    @Autowired
+    private EventoSegurancaRepository eventoRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void limparDados() {
+        SecurityContextHolder.clearContext();
+        String chave;
+        while ((chave = chavesCriadas.poll()) != null) {
+            jdbcTemplate.update("delete from protecao_autenticacao where chave_login = ?", chave);
+            jdbcTemplate.update("delete from evento_seguranca where identificador_hash = ?", chave);
+        }
+        Long pessoaId;
+        while ((pessoaId = pessoasCriadas.poll()) != null) {
+            jdbcTemplate.update(
+                    "delete from evento_seguranca where ator_conta_id in (select id from conta_acesso where pessoa_id = ?) or alvo_conta_id in (select id from conta_acesso where pessoa_id = ?)",
+                    pessoaId, pessoaId);
+            jdbcTemplate.update(
+                    "delete from sessao_refresh_token where conta_acesso_id in (select id from conta_acesso where pessoa_id = ?)",
+                    pessoaId);
+            jdbcTemplate.update(
+                    "delete from conta_acesso_perfil where conta_acesso_id in (select id from conta_acesso where pessoa_id = ?)",
+                    pessoaId);
+            jdbcTemplate.update("delete from conta_acesso where pessoa_id = ?", pessoaId);
+            jdbcTemplate.update("delete from pessoa where id = ?", pessoaId);
+        }
+        jdbcTemplate.update("delete from evento_seguranca where ator_conta_id is null and alvo_conta_id is null and identificador_hash is null");
+    }
+
+    @Test
+    void deveBloquearAposCincoFalhasConsecutivasERecusarSenhaCorretaCom401Generico() throws Exception {
+        String login = criarOperadorUnico("bloqueio.temp");
+        String chave = registrarChave(login);
+
+        for (int tentativa = 1; tentativa <= 5; tentativa++) {
+            loginEsperandoNaoAutorizado(login, "senha-incorreta-2026");
+        }
+
+        // 6a tentativa com a senha CORRETA deve ser recusada com o mesmo 401 genÃ©rico
+        loginEsperandoNaoAutorizado(login, SENHA_CORRETA);
+
+        ProtecaoAutenticacao protecao = protecaoRepository.findByChaveLogin(chave).orElseThrow();
+        assertEquals(5, protecao.getFalhasConsecutivas());
+        assertNotNull(protecao.getBloqueadaAte());
+
+        List<EventoSeguranca> eventos = eventoRepository.findAll().stream()
+                .filter(e -> chave.equals(e.getIdentificadorHash()))
+                .toList();
+
+        assertEquals(5, eventos.stream().filter(e -> e.getTipo() == TipoEventoSeguranca.LOGIN_FALHA).count());
+        assertEquals(1, eventos.stream().filter(e -> e.getTipo() == TipoEventoSeguranca.BLOQUEIO_TEMPORARIO_ATIVADO).count());
+        assertEquals(1, eventos.stream().filter(e -> e.getTipo() == TipoEventoSeguranca.LOGIN_RECUSADO_BLOQUEIO).count());
+    }
+
+    @Test
+    void deveLimparContadorAposLoginValidoAntesDoLimite() throws Exception {
+        String login = criarOperadorUnico("limpa.falhas");
+        String chave = registrarChave(login);
+
+        loginEsperandoNaoAutorizado(login, "senha-errada-1");
+        loginEsperandoNaoAutorizado(login, "senha-errada-2");
+
+        ProtecaoAutenticacao antes = protecaoRepository.findByChaveLogin(chave).orElseThrow();
+        assertEquals(2, antes.getFalhasConsecutivas());
+
+        autenticar(login, SENHA_CORRETA);
+
+        ProtecaoAutenticacao depois = protecaoRepository.findByChaveLogin(chave).orElseThrow();
+        assertEquals(0, depois.getFalhasConsecutivas());
+        assertNull(depois.getJanelaIniciadaEm());
+        assertNull(depois.getBloqueadaAte());
+
+        long sucessos = eventoRepository.findAll().stream()
+                .filter(e -> chave.equals(e.getIdentificadorHash()) && e.getTipo() == TipoEventoSeguranca.LOGIN_SUCESSO)
+                .count();
+        assertEquals(1, sucessos);
+    }
+
+    @Test
+    void deveManterRespostaGenericaParaContaInexistenteSemGravarLoginOriginal() throws Exception {
+        String loginInexistente = "usuario.inexistente." + System.nanoTime();
+        String chave = registrarChave(loginInexistente);
+
+        loginEsperandoNaoAutorizado(loginInexistente, "qualquer-senha-2026");
+
+        Integer ocorrenciasLoginTexto = jdbcTemplate.queryForObject(
+                "select count(*) from evento_seguranca where identificador_hash = ? or endereco_origem = ?",
+                Integer.class,
+                loginInexistente,
+                loginInexistente
+        );
+        assertEquals(0, ocorrenciasLoginTexto);
+        assertTrue(protecaoRepository.findByChaveLogin(chave).isPresent());
+    }
+
+    @Test
+    void deveGarantirConsistenciaEmFalhasConcorrentesComLockPessimista() throws Exception {
+        String login = criarOperadorUnico("concorrencia.falhas");
+        String chave = registrarChave(login);
+
+        for (int i = 1; i <= 3; i++) {
+            loginEsperandoNaoAutorizado(login, "senha-errada-" + i);
+        }
+
+        CountDownLatch inicioSimultaneo = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Integer> f1 = executor.submit(() -> tentarLoginConcorrente(login, inicioSimultaneo));
+            Future<Integer> f2 = executor.submit(() -> tentarLoginConcorrente(login, inicioSimultaneo));
+
+            inicioSimultaneo.countDown();
+
+            assertEquals(401, f1.get(10, TimeUnit.SECONDS));
+            assertEquals(401, f2.get(10, TimeUnit.SECONDS));
+        }
+
+        ProtecaoAutenticacao protecao = protecaoRepository.findByChaveLogin(chave).orElseThrow();
+        assertEquals(5, protecao.getFalhasConsecutivas());
+        assertNotNull(protecao.getBloqueadaAte());
+
+        List<EventoSeguranca> eventos = eventoRepository.findAll().stream()
+                .filter(e -> chave.equals(e.getIdentificadorHash()))
+                .toList();
+        assertEquals(5, eventos.stream().filter(e -> e.getTipo() == TipoEventoSeguranca.LOGIN_FALHA).count());
+        assertEquals(1, eventos.stream().filter(e -> e.getTipo() == TipoEventoSeguranca.BLOQUEIO_TEMPORARIO_ATIVADO).count());
+    }
+
+    @Test
+    void deveAuditarAcoesAdministrativasESessaoERestringirConsultaAoAdministrador() throws Exception {
+        TokensHttp tokensAdmin = criarAdminUnicoETokens();
+        String tokenAdmin = tokensAdmin.accessToken();
+
+        // Cria operador via endpoint administrativo -> audita CONTA_CRIADA
+        Long pessoaOperadorId = cadastrarPessoa(tokenAdmin, "Operador Auditado");
+        String loginOperador = "op.audit." + System.nanoTime();
+        registrarChave(loginOperador);
+
+        MvcResult contaResult = mockMvc.perform(post("/api/contas-acesso")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "pessoaId": %d,
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(pessoaOperadorId, loginOperador, SENHA_CORRETA)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long contaOperadorId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(contaResult.getResponse().getContentAsString())
+                .get("id")).longValue();
+
+        // Altera perfis -> audita PERFIS_ALTERADOS
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadorId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR", "ADMINISTRADOR"]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        // Volta para OPERADOR
+        mockMvc.perform(put("/api/contas-acesso/{id}/perfis", contaOperadorId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "perfis": ["OPERADOR"]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        // Login, troca senha (SENHA_ALTERADA), refresh (REFRESH_SUCESSO + REFRESH_FALHA), logout e logout-todos
+        TokensHttp tokensOperador = autenticar(loginOperador, SENHA_CORRETA);
+
+        mockMvc.perform(put("/api/contas-acesso/me/senha")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokensOperador.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "senhaAtual": "%s",
+                                  "novaSenha": "%s"
+                                }
+                                """.formatted(SENHA_CORRETA, NOVA_SENHA)))
+                .andExpect(status().isNoContent());
+
+        TokensHttp renovados = renovar(tokensOperador.refreshToken());
+        // ReutilizaÃ§Ã£o provoca REFRESH_FALHA
+        mockMvc.perform(post("/api/autenticacao/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(tokensOperador.refreshToken())))
+                .andExpect(status().isUnauthorized());
+
+        TokensHttp segundaSessao = autenticar(loginOperador, NOVA_SENHA);
+        mockMvc.perform(post("/api/autenticacao/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(segundaSessao.refreshToken())))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/autenticacao/logout-todos")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + renovados.accessToken()))
+                .andExpect(status().isNoContent());
+
+        // Altera status -> audita STATUS_ALTERADO
+        mockMvc.perform(put("/api/contas-acesso/{id}/status", contaOperadorId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "BLOQUEADA"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        // AutorizaÃ§Ã£o do endpoint de auditoria: 401 sem token, 403 para OPERADOR, 200 para ADMINISTRADOR
+        mockMvc.perform(get("/api/auditoria-seguranca"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/auditoria-seguranca")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + renovados.accessToken()))
+                .andExpect(status().isForbidden());
+
+        MvcResult auditoriaResult = mockMvc.perform(get("/api/auditoria-seguranca")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .param("page", "0")
+                        .param("size", "50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conteudo").isArray())
+                .andExpect(jsonPath("$.conteudo[0].identificadorHash").doesNotExist())
+                .andExpect(content().string(not(containsString("identificadorHash"))))
+                .andExpect(content().string(not(containsString(SENHA_CORRETA))))
+                .andExpect(content().string(not(containsString(NOVA_SENHA))))
+                .andExpect(content().string(not(containsString(renovados.refreshToken()))))
+                .andReturn();
+
+        String jsonResposta = auditoriaResult.getResponse().getContentAsString();
+        assertTrue(jsonResposta.contains("CONTA_CRIADA"));
+        assertTrue(jsonResposta.contains("PERFIS_ALTERADOS"));
+        assertTrue(jsonResposta.contains("STATUS_ALTERADO"));
+        assertTrue(jsonResposta.contains("SENHA_ALTERADA"));
+        assertTrue(jsonResposta.contains("REFRESH_SUCESSO"));
+        assertTrue(jsonResposta.contains("REFRESH_FALHA"));
+        assertTrue(jsonResposta.contains("LOGOUT"));
+        assertTrue(jsonResposta.contains("LOGOUT_GLOBAL"));
+
+        // Filtro por tipo
+        mockMvc.perform(get("/api/auditoria-seguranca")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenAdmin)
+                        .param("tipo", "SENHA_ALTERADA"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conteudo[*].tipo", everyItem(equalTo("SENHA_ALTERADA"))));
+    }
+
+    private int tentarLoginConcorrente(String login, CountDownLatch inicioSimultaneo) throws Exception {
+        inicioSimultaneo.await();
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "senha-errada-concorrente"
+                                }
+                                """.formatted(login)))
+                .andReturn();
+        return result.getResponse().getStatus();
+    }
+
+    private void loginEsperandoNaoAutorizado(String login, String senha) throws Exception {
+        mockMvc.perform(post("/api/autenticacao/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(login, senha)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Login ou senha invÃ¡lidos"));
+    }
+
+    private String criarOperadorUnico(String prefixo) {
+        autenticarContextoAdmin();
+        try {
+            Pessoa pessoa = pessoaService.cadastrar(
+                    "Operador " + prefixo,
+                    prefixo + "." + System.nanoTime() + "@example.com",
+                    gerarCpfUnico());
+            pessoasCriadas.add(pessoa.getId());
+            String login = prefixo + "." + System.nanoTime();
+            contaAcessoService.cadastrar(pessoa.getId(), login, SENHA_CORRETA);
+            return login;
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private TokensHttp criarAdminUnicoETokens() throws Exception {
+        String loginAdmin = "admin.audit." + System.nanoTime();
+        registrarChave(loginAdmin);
+        autenticarContextoAdmin();
+        try {
+            Pessoa pessoa = pessoaService.cadastrar(
+                    "Admin Auditoria",
+                    loginAdmin + "@example.com",
+                    gerarCpfUnico());
+            pessoasCriadas.add(pessoa.getId());
+            ContaAcesso conta = contaAcessoService.cadastrar(pessoa.getId(), loginAdmin, SENHA_ADMIN);
+            contaAcessoService.alterarPerfis(
+                    conta.getId(),
+                    Set.of(PerfilAcesso.OPERADOR, PerfilAcesso.ADMINISTRADOR),
+                    "sistema.bootstrap");
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+        return autenticar(loginAdmin, SENHA_ADMIN);
+    }
+
+    private Long cadastrarPessoa(String bearerToken, String nome) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/pessoas")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nome": "%s",
+                                  "email": "pessoa.%d@example.com",
+                                  "cpf": "%s"
+                                }
+                                """.formatted(nome, System.nanoTime(), gerarCpfUnico())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long pessoaId = ((Number) JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString())
+                .get("id")).longValue();
+        pessoasCriadas.add(pessoaId);
+        return pessoaId;
+    }
+
+    private TokensHttp autenticar(String login, String senha) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "login": "%s",
+                                  "senha": "%s"
+                                }
+                                """.formatted(login, senha)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Map<String, Object> body = JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString());
+        return new TokensHttp(
+                body.get("accessToken").toString(),
+                body.get("refreshToken").toString()
+        );
+    }
+
+    private TokensHttp renovar(String refreshToken) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/autenticacao/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "refreshToken": "%s"
+                                }
+                                """.formatted(refreshToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Map<String, Object> body = JsonParserFactory.getJsonParser()
+                .parseMap(result.getResponse().getContentAsString());
+        return new TokensHttp(
+                body.get("accessToken").toString(),
+                body.get("refreshToken").toString()
+        );
+    }
+
+    private String registrarChave(String login) {
+        String chave = ProtecaoAutenticacaoService.gerarChaveLogin(login);
+        chavesCriadas.add(chave);
+        return chave;
+    }
+
+    private static void autenticarContextoAdmin() {
+        var auth = UsernamePasswordAuthenticationToken.authenticated(
+                "sistema.bootstrap",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_ADMINISTRADOR"))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+    }
+
+    private static String gerarCpfUnico() {
+        long semente = Math.abs(System.nanoTime() + SEQUENCIA_CPF.incrementAndGet()) % 899_999_999L + 100_000_000L;
+        String base = String.format("%09d", semente);
+        final char primeiroDigito = base.charAt(0);
+        if (base.chars().allMatch(c -> c == primeiroDigito)) {
+            base = "123456789";
+        }
+        int d1 = calcularDigitoCpf(base, 10);
+        int d2 = calcularDigitoCpf(base + d1, 11);
+        return base + d1 + d2;
+    }
+
+    private static int calcularDigitoCpf(String base, int pesoInicial) {
+        int soma = 0;
+        for (int i = 0; i < base.length(); i++) {
+            soma += Character.getNumericValue(base.charAt(i)) * (pesoInicial - i);
+        }
+        int resto = soma % 11;
+        return resto < 2 ? 0 : 11 - resto;
+    }
+
+    private record TokensHttp(String accessToken, String refreshToken) {
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\model\ContaAcessoTest.java ===
+package com.curso.biblioteca2026.model;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.time.LocalDate;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class ContaAcessoTest {
+
+    @Test
+    void deveCriarContaAtivaComLoginTrimmedEPerfilOperador() {
+        Pessoa pessoa = novaPessoa();
+
+        ContaAcesso conta = new ContaAcesso(
+                pessoa,
+                "  ana.2026  ",
+                "{bcrypt}hash-seguro"
+        );
+
+        assertAll(
+                () -> assertEquals("ana.2026", conta.getLogin()),
+                () -> assertEquals("{bcrypt}hash-seguro", conta.getSenhaHash()),
+                () -> assertEquals(StatusContaAcesso.ATIVA, conta.getStatus()),
+                () -> assertEquals(Set.of(PerfilAcesso.OPERADOR), conta.getPerfis()),
+                () -> assertTrue(conta.podeAutenticar())
+        );
+    }
+
+    @ParameterizedTest(name = "login invÃ¡lido: [{0}]")
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    void naoDeveAceitarLoginNuloOuEmBranco(String loginInvalido) {
+        Pessoa pessoa = novaPessoa();
+
+        IllegalArgumentException erro = assertThrows(
+                IllegalArgumentException.class,
+                () -> new ContaAcesso(pessoa, loginInvalido, "{bcrypt}hash")
+        );
+
+        assertEquals("Login Ã© obrigatÃ³rio", erro.getMessage());
+    }
+
+    @ParameterizedTest(name = "login fora do padrÃ£o: [{0}]")
+    @ValueSource(strings = {"ab", "usuario invalido", "user@domain"})
+    void naoDeveAceitarLoginForaDoPadrao(String loginForaPadrao) {
+        Pessoa pessoa = novaPessoa();
+
+        IllegalArgumentException erro = assertThrows(
+                IllegalArgumentException.class,
+                () -> new ContaAcesso(pessoa, loginForaPadrao, "{bcrypt}hash")
+        );
+
+        assertEquals("Login invÃ¡lido", erro.getMessage());
+    }
+
+    @Test
+    void deveAlterarSenhaSomenteQuandoOHashForValido() {
+        ContaAcesso conta = novaConta();
+
+        conta.alterarSenha("{bcrypt}novo-hash");
+
+        assertEquals("{bcrypt}novo-hash", conta.getSenhaHash());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> conta.alterarSenha(" ")
+        );
+    }
+
+    @Test
+    void deveAdministrarPerfisSemPermitirContaSemPerfil() {
+        ContaAcesso conta = novaConta();
+
+        conta.concederPerfil(PerfilAcesso.ADMINISTRADOR);
+        conta.substituirPerfis(Set.of(PerfilAcesso.ADMINISTRADOR));
+
+        assertTrue(conta.possuiPerfil(PerfilAcesso.ADMINISTRADOR));
+        assertFalse(conta.possuiPerfil(PerfilAcesso.OPERADOR));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> conta.substituirPerfis(Set.of())
+        );
+    }
+
+    @Test
+    void deveConsiderarOStatusDaContaEDaPessoaParaAutenticar() {
+        Pessoa pessoa = novaPessoa();
+        ContaAcesso conta = new ContaAcesso(pessoa, "ana.2026", "{bcrypt}hash");
+
+        conta.bloquear();
+        assertFalse(conta.podeAutenticar());
+
+        conta.ativar();
+        pessoa.inativar();
+        assertFalse(conta.podeAutenticar());
+
+        pessoa.ativar();
+        assertTrue(conta.podeAutenticar());
+    }
+
+    private ContaAcesso novaConta() {
+        return new ContaAcesso(novaPessoa(), "ana.2026", "{bcrypt}hash");
+    }
+
+    private Pessoa novaPessoa() {
+        return new Pessoa(
+                "Ana Souza",
+                "ana.teste@example.com",
+                "52998224725",
+                LocalDate.of(2026, 11, 25)
+        );
     }
 }
 
@@ -4732,6 +7553,392 @@ class EmprestimoTest {
         assertEquals(StatusEmprestimo.FINALIZADO, emprestimo.getStatus());
         assertThrows(IllegalStateException.class, emprestimo::cancelar);
         assertThrows(IllegalStateException.class, () -> emprestimo.adicionarItem(livro, 1));
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\model\LivroTest.java ===
+package com.curso.biblioteca2026.model;
+
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class LivroTest {
+
+    @Test
+    void deveAtualizarSaldoECalcularValorTotalNaMovimentacaoDeExemplares() {
+        CategoriaLivro categoria = new CategoriaLivro("Literatura");
+        Livro livro = new Livro(
+                "9788535902778",
+                "Dom Casmurro",
+                5,
+                new BigDecimal("50.00"),
+                LocalDate.of(2026, 11, 25),
+                true,
+                categoria
+        );
+
+        livro.receberExemplares(3);
+        assertEquals(8, livro.getQuantidadeExemplares());
+
+        livro.retirarExemplares(2);
+        assertEquals(6, livro.getQuantidadeExemplares());
+        assertEquals(0, new BigDecimal("300.00").compareTo(livro.getValorTotal()));
+    }
+
+    @Test
+    void naoDevePermitirRetiradaAcimaDoSaldoOuQuantidadeNaoPositiva() {
+        CategoriaLivro categoria = new CategoriaLivro("Literatura");
+        Livro livro = new Livro(
+                "9788535902778",
+                "Dom Casmurro",
+                5,
+                new BigDecimal("50.00"),
+                LocalDate.of(2026, 11, 25),
+                true,
+                categoria
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> livro.retirarExemplares(6));
+        assertThrows(IllegalArgumentException.class, () -> livro.retirarExemplares(0));
+        assertThrows(IllegalArgumentException.class, () -> livro.receberExemplares(0));
+        assertEquals(5, livro.getQuantidadeExemplares());
+    }
+
+    @Test
+    void deveRefletirStatusAtivoEInativo() {
+        CategoriaLivro categoria = new CategoriaLivro("Literatura");
+        Livro livro = new Livro(
+                "9788535902778",
+                "Dom Casmurro",
+                5,
+                new BigDecimal("50.00"),
+                LocalDate.of(2026, 11, 25),
+                true,
+                categoria
+        );
+
+        assertTrue(livro.getAtivo());
+
+        livro.alterarStatus(Status.INATIVO);
+        assertFalse(livro.getAtivo());
+        assertEquals(Status.INATIVO, livro.getStatus());
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\model\ProtecaoAutenticacaoTest.java ===
+package com.curso.biblioteca2026.model;
+
+import com.curso.biblioteca2026.config.ProtecaoAutenticacaoProperties;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.time.Duration;
+import java.time.Instant;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class ProtecaoAutenticacaoTest {
+
+    private static final Instant INICIO = Instant.parse("2026-10-29T12:00:00Z");
+    private static final String HASH_VALIDO = "a".repeat(64);
+
+    @Test
+    void deveAtivarBloqueioExatamenteNaQuintaFalhaELiberarNoFimDoPrazo() {
+        ProtecaoAutenticacao protecao = new ProtecaoAutenticacao(HASH_VALIDO);
+        Duration janela = Duration.ofMinutes(15);
+        Duration bloqueio = Duration.ofMinutes(15);
+
+        for (int tentativa = 1; tentativa <= 4; tentativa++) {
+            boolean ativou = protecao.registrarFalha(
+                    INICIO.plusSeconds(tentativa * 10L), 5, janela, bloqueio);
+            assertFalse(ativou);
+            assertFalse(protecao.estaBloqueada(INICIO.plusSeconds(tentativa * 10L)));
+        }
+
+        Instant instanteQuintaFalha = INICIO.plus(Duration.ofMinutes(2));
+        boolean ativouNaQuinta = protecao.registrarFalha(instanteQuintaFalha, 5, janela, bloqueio);
+
+        assertTrue(ativouNaQuinta);
+        assertEquals(5, protecao.getFalhasConsecutivas());
+        assertEquals(instanteQuintaFalha.plus(bloqueio), protecao.getBloqueadaAte());
+
+        assertTrue(protecao.estaBloqueada(instanteQuintaFalha.plus(bloqueio).minusMillis(1)));
+        assertFalse(protecao.estaBloqueada(instanteQuintaFalha.plus(bloqueio)));
+    }
+
+    @Test
+    void deveLimparFalhasAposSucessoEReiniciarJanelaAposExpiracao() {
+        ProtecaoAutenticacao protecao = new ProtecaoAutenticacao(HASH_VALIDO);
+        Duration janela = Duration.ofMinutes(15);
+        Duration bloqueio = Duration.ofMinutes(15);
+
+        protecao.registrarFalha(INICIO, 5, janela, bloqueio);
+        protecao.registrarFalha(INICIO.plus(Duration.ofMinutes(1)), 5, janela, bloqueio);
+        assertEquals(2, protecao.getFalhasConsecutivas());
+
+        protecao.registrarSucesso();
+        assertEquals(0, protecao.getFalhasConsecutivas());
+        assertNull(protecao.getJanelaIniciadaEm());
+        assertNull(protecao.getBloqueadaAte());
+
+        protecao.registrarFalha(INICIO, 5, janela, bloqueio);
+        protecao.registrarFalha(INICIO.plus(Duration.ofMinutes(5)), 5, janela, bloqueio);
+        assertEquals(2, protecao.getFalhasConsecutivas());
+
+        // Exatamente ao expirar a janela de 15 minutos, a nova falha inicia nova contagem
+        protecao.registrarFalha(INICIO.plus(Duration.ofMinutes(15)), 5, janela, bloqueio);
+        assertEquals(1, protecao.getFalhasConsecutivas());
+        assertEquals(INICIO.plus(Duration.ofMinutes(15)), protecao.getJanelaIniciadaEm());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "127.0.0.1\r\nFAKE: line",
+            "127.0.0.1\nFAKE",
+            "127.0.0.1\rFAKE",
+            "1234567890123456789012345678901234567890123456"
+    })
+    void deveRejeitarEnderecoOrigemComQuebraDeLinhaOuAcimaDe45Caracteres(String origemInvalida) {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new EventoSeguranca(
+                        TipoEventoSeguranca.LOGIN_FALHA,
+                        INICIO,
+                        null,
+                        null,
+                        HASH_VALIDO,
+                        origemInvalida
+                )
+        );
+    }
+
+    @Test
+    void deveNormalizarEnderecoEmBrancoERejeitarIdentificadorHashInvalido() {
+        EventoSeguranca evento = new EventoSeguranca(
+                TipoEventoSeguranca.LOGIN_SUCESSO,
+                INICIO,
+                1L,
+                1L,
+                HASH_VALIDO,
+                "   "
+        );
+        assertNull(evento.getEnderecoOrigem());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new EventoSeguranca(
+                        TipoEventoSeguranca.LOGIN_FALHA,
+                        INICIO,
+                        null,
+                        null,
+                        "login-em-texto-aberto",
+                        "127.0.0.1"
+                )
+        );
+    }
+
+    @Test
+    void deveValidarParametrosDeProtecaoAutenticacaoProperties() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProtecaoAutenticacaoProperties(0, Duration.ofMinutes(15), Duration.ofMinutes(15)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProtecaoAutenticacaoProperties(5, Duration.ZERO, Duration.ofMinutes(15)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProtecaoAutenticacaoProperties(5, Duration.ofMinutes(15), Duration.ofMinutes(-1)));
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\model\SessaoRefreshTokenTest.java ===
+package com.curso.biblioteca2026.model;
+
+import com.curso.biblioteca2026.config.RefreshTokenProperties;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class SessaoRefreshTokenTest {
+
+    private static final Instant CRIACAO = Instant.parse("2026-10-29T12:00:00Z");
+
+    @Test
+    void deveExpirarAoAtingirOLimiteDeInatividade() {
+        SessaoRefreshToken sessao = novaSessao(CRIACAO.plus(Duration.ofHours(8)));
+
+        assertFalse(sessao.expirouPorInatividade(
+                CRIACAO.plus(Duration.ofMinutes(29)).plusSeconds(59),
+                Duration.ofMinutes(30)));
+
+        assertTrue(sessao.expirouPorInatividade(
+                CRIACAO.plus(Duration.ofMinutes(30)),
+                Duration.ofMinutes(30)));
+    }
+
+    @Test
+    void deveExpirarAoAtingirOLimiteAbsoluto() {
+        SessaoRefreshToken sessao = novaSessao(CRIACAO.plus(Duration.ofHours(8)));
+
+        assertFalse(sessao.atingiuExpiracaoAbsoluta(
+                CRIACAO.plus(Duration.ofHours(7)).plus(Duration.ofMinutes(59)).plusSeconds(59)));
+
+        assertTrue(sessao.atingiuExpiracaoAbsoluta(
+                CRIACAO.plus(Duration.ofHours(8))));
+    }
+
+    @Test
+    void deveMarcarUtilizadaEImpedirReutilizacaoOuUsoAposRevogacao() {
+        SessaoRefreshToken sessao = novaSessao(CRIACAO.plus(Duration.ofHours(8)));
+        Instant instanteUso = CRIACAO.plus(Duration.ofMinutes(10));
+
+        assertTrue(sessao.estaAtiva(instanteUso, Duration.ofMinutes(30)));
+        sessao.marcarUtilizada(instanteUso);
+
+        assertTrue(sessao.foiUtilizada());
+        assertEquals(instanteUso, sessao.getUtilizadaEm());
+        assertEquals(instanteUso, sessao.getUltimaAtividadeEm());
+        assertFalse(sessao.estaAtiva(instanteUso.plusSeconds(1), Duration.ofMinutes(30)));
+
+        assertThrows(IllegalStateException.class, () -> sessao.marcarUtilizada(instanteUso.plusSeconds(5)));
+
+        SessaoRefreshToken sessaoRevogada = novaSessao(CRIACAO.plus(Duration.ofHours(8)));
+        sessaoRevogada.revogar(instanteUso, MotivoRevogacaoRefreshToken.LOGOUT);
+        sessaoRevogada.revogar(instanteUso.plusSeconds(10), MotivoRevogacaoRefreshToken.REUTILIZACAO);
+
+        assertTrue(sessaoRevogada.foiRevogada());
+        assertEquals(MotivoRevogacaoRefreshToken.LOGOUT, sessaoRevogada.getMotivoRevogacao());
+        assertThrows(IllegalStateException.class, () -> sessaoRevogada.marcarUtilizada(instanteUso.plusSeconds(20)));
+    }
+
+    @Test
+    void naoDeveExporHashNoToStringEValidarPropriedades() {
+        SessaoRefreshToken sessao = novaSessao(CRIACAO.plus(Duration.ofHours(8)));
+        assertFalse(sessao.toString().contains("hash-secreto-2026"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new RefreshTokenProperties(Duration.ZERO, Duration.ofHours(8)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RefreshTokenProperties(Duration.ofMinutes(30), Duration.ofMinutes(30)));
+    }
+
+    private SessaoRefreshToken novaSessao(Instant expiraEm) {
+        Pessoa pessoa = new Pessoa(
+                "Ana Souza",
+                "ana.sessao@example.com",
+                "52998224725",
+                LocalDate.of(2026, 11, 25));
+        ContaAcesso conta = new ContaAcesso(pessoa, "ana.sessao", "{bcrypt}hash");
+        return new SessaoRefreshToken(
+                conta,
+                "familia-teste-1",
+                "hash-secreto-2026",
+                CRIACAO,
+                expiraEm);
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\service\AdministradorInicialServiceTest.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.config.AdministradorInicialProperties;
+import com.curso.biblioteca2026.model.ContaAcesso;
+import com.curso.biblioteca2026.model.PerfilAcesso;
+import com.curso.biblioteca2026.model.StatusContaAcesso;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Transactional
+class AdministradorInicialServiceTest {
+
+    private static final AtomicInteger SEQUENCIA_CPF = new AtomicInteger(700_000_000);
+
+    @Autowired
+    private AdministradorInicialService service;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Test
+    void deveCriarAdministradorInicialQuandoNaoExisteAdminAtivoESerIdempotente() {
+        String cpf = gerarCpfUnico();
+        String email = "admin." + System.nanoTime() + "@example.com";
+        String login = "admin." + System.nanoTime();
+        String senha = "senha-admin-inicial-2026";
+
+        AdministradorInicialProperties properties = new AdministradorInicialProperties(
+                true,
+                "Administrador Inicial",
+                email,
+                cpf,
+                login,
+                senha
+        );
+
+        Optional<ContaAcesso> criada = service.criarSeNecessario(properties);
+
+        assertTrue(criada.isPresent());
+        ContaAcesso conta = criada.orElseThrow();
+        assertEquals(login, conta.getLogin());
+        assertEquals(StatusContaAcesso.ATIVA, conta.getStatus());
+        assertTrue(conta.possuiPerfil(PerfilAcesso.OPERADOR));
+        assertTrue(conta.possuiPerfil(PerfilAcesso.ADMINISTRADOR));
+        assertTrue(passwordEncoder.matches(senha, conta.getSenhaHash()));
+
+        Optional<ContaAcesso> segundaExecucao = service.criarSeNecessario(properties);
+        assertTrue(segundaExecucao.isEmpty());
+    }
+
+    @Test
+    void deveRejeitarConfiguracaoIncompletaDoAdministradorInicial() {
+        AdministradorInicialProperties incompleta = new AdministradorInicialProperties(
+                true,
+                "Administrador Incompleto",
+                "admin.incompleto@example.com",
+                gerarCpfUnico(),
+                "admin.incompleto",
+                ""
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> service.criarSeNecessario(incompleta));
+    }
+
+    private static String gerarCpfUnico() {
+        long semente = Math.abs(System.nanoTime() + SEQUENCIA_CPF.incrementAndGet()) % 899_999_999L + 100_000_000L;
+        String base = String.format("%09d", semente);
+        final char primeiroDigito = base.charAt(0);
+        if (base.chars().allMatch(c -> c == primeiroDigito)) {
+            base = "123456789";
+        }
+        int d1 = calcularDigitoCpf(base, 10);
+        int d2 = calcularDigitoCpf(base + d1, 11);
+        return base + d1 + d2;
+    }
+
+    private static int calcularDigitoCpf(String base, int pesoInicial) {
+        int soma = 0;
+        for (int i = 0; i < base.length(); i++) {
+            soma += Character.getNumericValue(base.charAt(i)) * (pesoInicial - i);
+        }
+        int resto = soma % 11;
+        return resto < 2 ? 0 : 11 - resto;
     }
 }
 
@@ -5141,13 +8348,20 @@ import com.curso.biblioteca2026.model.ContaAcesso;
 import com.curso.biblioteca2026.model.PerfilAcesso;
 import com.curso.biblioteca2026.model.Pessoa;
 import com.curso.biblioteca2026.model.StatusContaAcesso;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -5168,6 +8382,16 @@ class ContaAcessoServiceTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void autenticarComoAdministrador() {
+        autenticarComRole("ROLE_ADMINISTRADOR");
+    }
+
+    @AfterEach
+    void limparContextoSeguranca() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void devePersistirContaComHashBcryptSemGuardarSenhaAberta() {
@@ -5198,11 +8422,34 @@ class ContaAcessoServiceTest {
                 "carlos." + System.nanoTime() + "@example.com",
                 gerarCpfUnico());
 
-        String senha73Bytes = "Ã¡".repeat(36) + "a"; // 36 * 2 + 1 = 73 bytes em UTF-8
+        String senha73Bytes = "Ã¡".repeat(36) + "a";
 
         assertThrows(
                 IllegalArgumentException.class,
                 () -> contaAcessoService.cadastrar(pessoa.getId(), "carlos." + System.nanoTime(), senha73Bytes));
+    }
+
+    @Test
+    void deveBloquearCadastroDiretoNoServiceSemPerfilAdministrador() {
+        Pessoa pessoa = pessoaService.cadastrar(
+                "Diana Rocha",
+                "diana." + System.nanoTime() + "@example.com",
+                gerarCpfUnico());
+
+        autenticarComRole("ROLE_OPERADOR");
+
+        assertThrows(
+                AccessDeniedException.class,
+                () -> contaAcessoService.cadastrar(pessoa.getId(), "diana." + System.nanoTime(), "uma-frase-senha-2026"));
+    }
+
+    private static void autenticarComRole(String role) {
+        var auth = UsernamePasswordAuthenticationToken.authenticated(
+                "usuario.teste",
+                null,
+                List.of(new SimpleGrantedAuthority(role))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
     private static String gerarCpfUnico() {
@@ -5396,5 +8643,154 @@ class EmprestimoServiceTest {
     }
 
     private record ResultadoFinalizacao(boolean sucesso, String mensagem) {
+    }
+}
+
+// === ARQUIVO: C:\Projetos\biblioteca2026\src\test\java\com\curso\biblioteca2026\service\EmprestimoServiceUnitTest.java ===
+package com.curso.biblioteca2026.service;
+
+import com.curso.biblioteca2026.model.*;
+import com.curso.biblioteca2026.repository.BibliotecarioRepository;
+import com.curso.biblioteca2026.repository.EmprestimoRepository;
+import com.curso.biblioteca2026.repository.LeitorRepository;
+import com.curso.biblioteca2026.repository.LivroRepository;
+import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class EmprestimoServiceUnitTest {
+
+    @Mock
+    private EmprestimoRepository repository;
+
+    @Mock
+    private LeitorRepository leitorRepository;
+
+    @Mock
+    private BibliotecarioRepository bibliotecarioRepository;
+
+    @Mock
+    private LivroRepository livroRepository;
+
+    @Mock
+    private EntityManager entityManager;
+
+    @InjectMocks
+    private EmprestimoService service;
+
+    @Test
+    void naoDeveListarQuandoDataInicialForPosteriorADataFinal() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.listar(
+                        null,
+                        null,
+                        LocalDate.of(2026, 11, 25),
+                        LocalDate.of(2026, 11, 20),
+                        PageRequest.of(0, 20)
+                )
+        );
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void naoDeveListarQuandoCampoDeOrdenacaoForInvalido() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.listar(
+                        null,
+                        null,
+                        null,
+                        null,
+                        PageRequest.of(0, 20, Sort.by("campoInexistente"))
+                )
+        );
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void naoDeveAbrirEmprestimoQuandoLeitorEstiverInativo() {
+        Pessoa pessoaLeitor = new Pessoa("Ana Souza", "ana@example.com", "52998224725", LocalDate.now());
+        pessoaLeitor.inativar();
+        Leitor leitor = new Leitor(pessoaLeitor, "(17) 99999-0000");
+
+        Pessoa pessoaBib = new Pessoa("Bruno Lima", "bruno@example.com", "11144477735", LocalDate.now());
+        Bibliotecario bib = new Bibliotecario(pessoaBib, "BIB-001", FuncaoBibliotecario.ATENDENTE, LocalDate.now());
+
+        when(leitorRepository.findOneById(1L)).thenReturn(Optional.of(leitor));
+        when(bibliotecarioRepository.findOneById(1L)).thenReturn(Optional.of(bib));
+
+        assertThrows(IllegalArgumentException.class, () -> service.cadastrar(1L, 1L));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void naoDeveAbrirEmprestimoQuandoBibliotecarioNaoForAtendenteOuCoordenador() {
+        Pessoa pessoaLeitor = new Pessoa("Ana Souza", "ana@example.com", "52998224725", LocalDate.now());
+        Leitor leitor = new Leitor(pessoaLeitor, "(17) 99999-0000");
+
+        Pessoa pessoaBib = new Pessoa("Bruno Lima", "bruno@example.com", "11144477735", LocalDate.now());
+        Bibliotecario bib = new Bibliotecario(pessoaBib, "BIB-002", FuncaoBibliotecario.CATALOGADOR, LocalDate.now());
+
+        when(leitorRepository.findOneById(1L)).thenReturn(Optional.of(leitor));
+        when(bibliotecarioRepository.findOneById(1L)).thenReturn(Optional.of(bib));
+
+        assertThrows(IllegalArgumentException.class, () -> service.cadastrar(1L, 1L));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void naoDeveAdicionarLivroInativoAoEmprestimo() {
+        Emprestimo emprestimo = novoEmprestimoAberto();
+        CategoriaLivro categoria = new CategoriaLivro("Literatura");
+        Livro livroInativo = new Livro(
+                "9788535902778",
+                "Dom Casmurro",
+                5,
+                new BigDecimal("50.00"),
+                LocalDate.now(),
+                false,
+                categoria
+        );
+
+        when(repository.findOneById(1L)).thenReturn(Optional.of(emprestimo));
+        when(livroRepository.findById(1L)).thenReturn(Optional.of(livroInativo));
+
+        assertThrows(IllegalArgumentException.class, () -> service.adicionarItem(1L, 1L, 1));
+        assertTrue(emprestimo.getItens().isEmpty());
+    }
+
+    @Test
+    void deveCancelarEmprestimoAberto() {
+        Emprestimo emprestimo = novoEmprestimoAberto();
+        when(repository.findOneById(1L)).thenReturn(Optional.of(emprestimo));
+
+        Emprestimo resultado = service.cancelar(1L);
+
+        assertEquals(StatusEmprestimo.CANCELADO, resultado.getStatus());
+    }
+
+    private Emprestimo novoEmprestimoAberto() {
+        Pessoa pessoaLeitor = new Pessoa("Ana Souza", "ana@example.com", "52998224725", LocalDate.now());
+        Pessoa pessoaBib = new Pessoa("Bruno Lima", "bruno@example.com", "11144477735", LocalDate.now());
+        return new Emprestimo(
+                new Leitor(pessoaLeitor, "(17) 99999-0000"),
+                new Bibliotecario(pessoaBib, "BIB-001", FuncaoBibliotecario.ATENDENTE, LocalDate.now()),
+                LocalDateTime.now()
+        );
     }
 }

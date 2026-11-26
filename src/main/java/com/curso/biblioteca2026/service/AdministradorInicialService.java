@@ -34,6 +34,15 @@ public class AdministradorInicialService {
 
     @Transactional
     public Optional<ContaAcesso> criarSeNecessario(AdministradorInicialProperties properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Propriedades do administrador inicial n\u00e3o configuradas");
+        }
+        validarObrigatorio(properties.nome(), "Nome do administrador inicial \u00e9 obrigat\u00f3rio");
+        validarObrigatorio(properties.email(), "E-mail do administrador inicial \u00e9 obrigat\u00f3rio");
+        validarObrigatorio(properties.cpf(), "CPF do administrador inicial \u00e9 obrigat\u00f3rio");
+        String loginLimpo = validarObrigatorio(properties.login(), "Login do administrador inicial \u00e9 obrigat\u00f3rio");
+        ContaAcessoService.validarSenha(properties.senha());
+
         long administradoresAtivos = contaAcessoRepository.countAtivasPorPerfil(
                 StatusContaAcesso.ATIVA,
                 Status.ATIVO,
@@ -42,15 +51,6 @@ public class AdministradorInicialService {
         if (administradoresAtivos > 0) {
             return Optional.empty();
         }
-
-        if (properties == null) {
-            throw new IllegalArgumentException("Propriedades do administrador inicial não configuradas");
-        }
-        validarObrigatorio(properties.nome(), "Nome do administrador inicial é obrigatório");
-        validarObrigatorio(properties.email(), "E-mail do administrador inicial é obrigatório");
-        validarObrigatorio(properties.cpf(), "CPF do administrador inicial é obrigatório");
-        String loginLimpo = validarObrigatorio(properties.login(), "Login do administrador inicial é obrigatório");
-        ContaAcessoService.validarSenha(properties.senha());
 
         Pessoa pessoa = new Pessoa(properties.nome(), properties.email(), properties.cpf(), LocalDate.now());
 
