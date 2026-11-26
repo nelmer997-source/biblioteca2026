@@ -32,7 +32,15 @@ As consultas oficiais estao em `docs/aula-17/consultas_auditoria.sql`, projetand
 
 ## 5. Saida dos Testes Automatizados (`.\mvnw.cmd clean verify`)
 
-Rode `.\mvnw.cmd clean verify` no terminal e cole aqui o resumo (`Tests run: ..., Failures: 0, Errors: 0, Skipped: ...` e `BUILD SUCCESS`) antes do commit final.
+Comando executado: `.\mvnw.cmd clean verify` em `C:\Projetos\biblioteca2026`.
+
+```text
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  33.018 s
+[INFO] Finished at: 2026-11-26T13:42:19-03:00
+[INFO] ------------------------------------------------------------------------
+```
 
 ## 6. Transferencia para o Projeto Tematico (Se Aplicavel)
 
